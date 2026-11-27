@@ -119,6 +119,11 @@ interface TravelDao {
     @Insert suspend fun insertChat(m: ChatMessageEntity): Long
     @Query("DELETE FROM chat_messages") suspend fun clearChat()
 
+    // Visited countries (v3)
+    @Query("SELECT * FROM visited_countries ORDER BY name") fun visitedCountries(): Flow<List<VisitedCountry>>
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun upsertCountry(c: VisitedCountry): Long
+    @Delete suspend fun deleteCountry(c: VisitedCountry)
+
     // Lists for backups / reminders / widgets
     @Query("SELECT * FROM transports") suspend fun transportsOnce(): List<Transport>
     @Query("SELECT * FROM lodgings") suspend fun lodgingsOnce(): List<Lodging>
@@ -126,13 +131,14 @@ interface TravelDao {
 
 @Database(
     entities = [Trip::class, Transport::class, Lodging::class, Place::class, ItineraryItem::class,
-        ChecklistItem::class, JournalEntry::class, Attachment::class, Memory::class, Expense::class, ChatMessageEntity::class],
+        ChecklistItem::class, JournalEntry::class, Attachment::class, Memory::class, Expense::class, ChatMessageEntity::class, VisitedCountry::class],
     version = WanderlustDatabase.VERSION,
     exportSchema = true,
     // Every schema change must add an entry here (or a manual Migration) — never destructive migrations,
     // so updates keep users' data. Schemas live in app/schemas/ and are checked by MigrationTest.
     autoMigrations = [
         AutoMigration(from = 1, to = 2),
+        AutoMigration(from = 2, to = 3),
     ],
 )
 @TypeConverters(Converters::class)
@@ -140,7 +146,7 @@ abstract class WanderlustDatabase : RoomDatabase() {
     abstract fun dao(): TravelDao
 
     companion object {
-        const val VERSION = 2
+        const val VERSION = 3
         const val NAME = "wanderlust.db"
         fun create(context: Context) = Room.databaseBuilder(context, WanderlustDatabase::class.java, NAME).build()
     }

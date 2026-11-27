@@ -248,6 +248,17 @@ data class Expense(
     val createdAt: Long = System.currentTimeMillis(),
 )
 
+/** A country the traveler has been to, added by hand for past trips (v3). Shown shaded on the world map. */
+@Entity(tableName = "visited_countries", indices = [Index(value = ["countryCode"], unique = true)])
+data class VisitedCountry(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val countryCode: String,          // ISO 3166-1 alpha-2, e.g. "TW"
+    val name: String,
+    val year: Int? = null,
+    val notes: String = "",
+    val createdAt: Long = System.currentTimeMillis(),
+)
+
 /** Assistant chat history shown in the app (v2). */
 @Entity(tableName = "chat_messages")
 data class ChatMessageEntity(

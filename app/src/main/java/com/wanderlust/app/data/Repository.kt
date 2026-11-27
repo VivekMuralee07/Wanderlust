@@ -116,6 +116,11 @@ class TravelRepository(private val dao: TravelDao, private val files: FileStore)
         dao.deleteExpense(e)
     }
 
+    // ---- Visited countries
+    val visitedCountries = dao.visitedCountries()
+    suspend fun saveCountry(c: VisitedCountry) = dao.upsertCountry(c)
+    suspend fun deleteCountry(c: VisitedCountry) = dao.deleteCountry(c)
+
     // ---- Chat history
     suspend fun chatMessages() = dao.chatMessages()
     suspend fun addChat(m: ChatMessageEntity) = dao.insertChat(m)

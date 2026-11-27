@@ -146,6 +146,16 @@ class ScreenshotTest {
 
     @Test fun settings() = render("08_settings") { com.wanderlust.app.ui.settings.SettingsScreen(rememberNavController()) }
 
+    @Test fun world() {
+        runBlocking {
+            listOf("TW" to 2019, "IS" to 2025, "FR" to 2018, "IN" to null, "SG" to 2023).forEach { (cc, y) ->
+                app.repo.saveCountry(com.wanderlust.app.data.VisitedCountry(countryCode = cc, name = com.wanderlust.app.data.Countries.name(cc), year = y))
+            }
+        }
+        render("09_world") { com.wanderlust.app.ui.world.WorldScreen(rememberNavController()) }
+        assertEquals(175, com.wanderlust.app.data.Countries.shapes(ApplicationProvider.getApplicationContext()).size)
+    }
+
     @Test fun visualItinerary() = render("04_visual_itinerary") {
         val nav = rememberNavController()
         NavHost(nav, "it") { composable("it") { VisualItineraryScreen(nav, kyoto) } }

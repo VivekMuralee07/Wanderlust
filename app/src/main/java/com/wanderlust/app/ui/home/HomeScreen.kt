@@ -114,7 +114,8 @@ fun HomeScreen(nav: NavHostController) {
     val upcoming = active.filter { TravelRepository.tripStatus(it) == TripStatus.UPCOMING }.sortedBy { it.startDate }
     val past = trips.filter { TravelRepository.tripStatus(it) == TripStatus.PAST }.sortedByDescending { it.startDate }
     val hero = ongoing.firstOrNull() ?: upcoming.firstOrNull()
-    val countries = places.filter { it.visited && it.countryCode.isNotBlank() }.map { it.countryCode }.distinct().size
+    val manualCountries by app.repo.visitedCountries.collectAsState(initial = emptyList())
+    val countries = (places.filter { it.visited && it.countryCode.isNotBlank() }.map { it.countryCode } + manualCountries.map { it.countryCode }).distinct().size
     val flights = transports.count { TransportType.of(it.type) == TransportType.PLANE }
 
     Box(Modifier.fillMaxSize().background(Night)) {

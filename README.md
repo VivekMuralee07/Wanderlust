@@ -27,7 +27,7 @@ The data model and feature set follow the open-source [AdventureLog](https://git
 | **Visual itinerary** | Builds a timeline from your flights, check-ins and check-outs, places and activities. Each day gets a header and shows where you sleep that night. There are 7 switchable styles. **Export as a designed multi-page PDF**, or share as text. |
 | **Places** (AdventureLog *Locations/Visits*) | 15 categories, rating, visited flag, visit time. **Search on OpenStreetMap (Nominatim)**, the same geocoder AdventureLog uses, to get coordinates, city and country. |
 | **Maps** | Interactive OpenStreetMap on each trip and on "Your world", with a **search bar on the map**: search any place, preview it, and add it to a trip with a category in one tap. Pins are coloured by visited or planned. The trip map opens centred on its destination. |
-| **World stats** (AdventureLog *World travel*) | Countries with flags, places visited, travel days, flights, other rides, hotel nights, favourite kinds of places. |
+| **World stats** (AdventureLog *World travel*) | **Add countries from past trips** (searchable list, optional year): they are shaded on the world map. Tap any pin or shaded country to see details, mark it visited, or **remove** it. Countries with flags, places visited, travel days, flights, other rides, hotel nights, favourite kinds of places. |
 | **Itinerary activities** (AdventureLog *Itinerary items*) | Custom activities per day with start/end time, emoji and an "optional" flag. |
 | **Checklists** | A packing list is created automatically for each new trip. You can add more lists (To-do…) and track progress. |
 | **Travel journal** (AdventureLog *Notes*) | Daily entries with mood, text and a photo. |
@@ -141,4 +141,4 @@ Database changes go through Room migrations (`autoMigrations` in `Database.kt`, 
 
 Weather by [Open-Meteo](https://open-meteo.com) · Exchange rates by [ExchangeRate-API](https://www.exchangerate-api.com)
 
-Maps © OpenStreetMap contributors.
+Maps © OpenStreetMap contributors. Country outlines: Natural Earth (public domain).
