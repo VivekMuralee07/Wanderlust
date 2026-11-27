@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -13,13 +15,38 @@ android {
         applicationId = "com.wanderlust.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0.0"
+        // CI passes these from the git tag, e.g. -PversionName=1.2.0 -PversionCode=12
+        versionCode = (project.findProperty("versionCode") as String?)?.toInt() ?: 1
+        versionName = (project.findProperty("versionName") as String?) ?: "1.0.0"
         vectorDrawables { useSupportLibrary = true }
+        // GitHub repo whose Releases the in-app updater checks
+        buildConfigField("String", "UPDATE_REPO", "\"${project.findProperty("updateRepo") ?: "VivekMuralee07/Wanderlust"}\"")
+    }
+
+    // Release signing: from environment variables (CI) or a git-ignored keystore.properties file (local).
+    val keystoreProps = Properties().apply {
+        val f = rootProject.file("keystore.properties")
+        if (f.exists()) f.inputStream().use { load(it) }
+    }
+    fun secret(env: String, prop: String): String? = System.getenv(env) ?: keystoreProps.getProperty(prop)
+    val storePath = secret("WANDERLUST_KEYSTORE", "storeFile")
+    signingConfigs {
+        if (storePath != null) create("release") {
+            storeFile = rootProject.file(storePath)
+            storePassword = secret("WANDERLUST_KEYSTORE_PASSWORD", "storePassword")
+            keyAlias = secret("WANDERLUST_KEY_ALIAS", "keyAlias")
+            keyPassword = secret("WANDERLUST_KEY_PASSWORD", "keyPassword")
+        }
     }
 
     buildTypes {
+        debug {
+            // lets a debug build live next to the release app; in-app updates are off in debug builds
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-debug"
+        }
         release {
+            signingConfigs.findByName("release")?.let { signingConfig = it }
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
@@ -29,7 +56,10 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
         isCoreLibraryDesugaringEnabled = true
     }
-    buildFeatures { compose = true }
+    buildFeatures {
+        compose = true
+        buildConfig = true
+    }
     testOptions {
         unitTests {
             isIncludeAndroidResources = true
@@ -98,6 +128,9 @@ dependencies {
     testImplementation("androidx.compose.ui:ui-test-junit4")
     testImplementation("androidx.test:core:1.7.0")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
+
+    // Google Play In-App Updates (used when the app was installed from Play)
+    implementation("com.google.android.play:app-update-ktx:2.1.0")
 
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
 }

@@ -18,6 +18,7 @@ class AppContainer(app: Application) {
     val repo = TravelRepository(db.dao(), files)
     val settings = SettingsStore(app)
     val ai = ClaudeService(settings, repo)
+    val updater = com.wanderlust.app.update.AppUpdater(app)
 
     /** Long-lived scope for writes that must finish even if the user leaves the screen. */
     val appScope = CoroutineScope(SupervisorJob())

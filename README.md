@@ -33,6 +33,7 @@ The data model and feature set follow the open-source [AdventureLog](https://git
 | **Travel journal** (AdventureLog *Notes*) | Daily entries with mood, text and a photo. |
 | **Journal summary** | Works offline: headline, stats, mood timeline, snapshots, highlights, category breakdown and "words of the trip". **AI story**: Claude turns your entries into a short written recap with highlights and day by day. |
 | **AI travel agent** | A chat that can see your trips and can **act on them**. It can add itinerary items, checklist items and places, and it uses **web search** for visas, opening hours, weather and events. |
+| **In-app updates** | Settings → *App updates* (plus a banner on Home). Sideloaded installs check this repo's latest **GitHub Release**, download the APK, verify it is the same app, signed with the same key and newer, then open Android's installer. Installs from Google Play use **Google Play In-App Updates**. Automatic check at most every 12 h (can be turned off). |
 | **Memories / Google Photos** | Add photos with the Android photo picker. On devices where Google Photos is the cloud media app, your Google Photos library shows up in the picker. You can also **share photos from Google Photos straight into a trip** with Share → Wanderlust. |
 
 ### About Google Photos
@@ -68,6 +69,39 @@ Requirements: JDK 17+, Android SDK with platform 36. Android Studio Ladybug or n
 
 minSdk 26 (Android 8.0), targetSdk 36.
 
+## Publishing updates (in-app updater)
+
+Releases are built and published by GitHub Actions (`.github/workflows/release.yml`). The app finds them on its own.
+
+**One-time setup**
+1. Create your release signing key and **keep it safe**. Every future update must be signed with this same key.
+   ```bash
+   keytool -genkeypair -v -keystore wanderlust-release.jks -alias wanderlust \
+           -keyalg RSA -keysize 4096 -validity 10000
+   ```
+2. In GitHub, go to **Settings → Secrets and variables → Actions** and add these secrets:
+   - `KEYSTORE_BASE64`: output of `base64 -w0 wanderlust-release.jks` (macOS: `base64 -i wanderlust-release.jks`)
+   - `KEYSTORE_PASSWORD`, `KEY_ALIAS` (e.g. `wanderlust`), `KEY_PASSWORD`
+3. Publish the first release, then install that APK from the Releases page. If you have an older copy that was signed with a different key (any copy you didn't install from Releases), uninstall it first. Android won't update an app across different signing keys.
+
+**Each update**
+```bash
+git tag v1.1.0
+git push origin v1.1.0
+```
+The workflow sets `versionName` to 1.1.0 and `versionCode` to 10100, builds a signed APK and attaches it to a new GitHub Release with generated notes. You can edit the notes on GitHub; the app shows them. Installed apps offer the update within 12 hours, or right away with **Settings → Check now**.
+
+To build a signed release locally, create a git-ignored `keystore.properties` in the project root:
+```properties
+storeFile=wanderlust-release.jks
+storePassword=...
+keyAlias=wanderlust
+keyPassword=...
+```
+Then run `./gradlew :app:assembleRelease -PversionName=1.1.0 -PversionCode=10100`.
+
+Debug builds install as `com.wanderlust.app.debug`, next to the release app, and don't self-update.
+
 ## Architecture
 
 ```
@@ -75,6 +109,7 @@ app/src/main/java/com/wanderlust/app/
 ├── data/        Room entities + DAO, repository, file store (attachments/photos), settings, Nominatim geocoder
 ├── domain/      ItineraryBuilder (day-by-day timeline), countdowns, JournalSummarizer
 ├── ai/          ClaudeService (chat agent, ticket extraction, journal story), AgentTools
+├── update/      AppUpdater (GitHub Releases / Google Play in-app updates) + update UI
 └── ui/
     ├── home/        animated landing page
     ├── trips/       trip list, trip detail tabs, boarding-pass / stay cards
@@ -87,6 +122,6 @@ app/src/main/java/com/wanderlust/app/
     └── settings/
 ```
 
-Libraries: Jetpack Compose (Material 3), Navigation Compose, Room, Coil 3, osmdroid, Anthropic Java SDK.
+Libraries: Jetpack Compose (Material 3), Navigation Compose, Room, Coil 3, osmdroid, Anthropic Java SDK, Google Play In-App Updates.
 
 Maps © OpenStreetMap contributors.

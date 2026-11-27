@@ -124,6 +124,9 @@ fun HomeScreen(nav: NavHostController) {
                 Header(settings.travelerName, onSettings = { nav.navigate(Routes.SETTINGS) })
             }
             item {
+                com.wanderlust.app.update.UpdateBanner(Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
+            }
+            item {
                 FlightPath(Modifier.fillMaxWidth().height(70.dp).padding(horizontal = 20.dp))
             }
             item {

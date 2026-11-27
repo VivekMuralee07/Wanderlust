@@ -105,6 +105,9 @@ fun SettingsScreen(nav: NavHostController) {
                 }
             }
 
+            SmallLabel("App updates")
+            com.wanderlust.app.update.UpdateSettingsCard()
+
             SmallLabel("Google Photos")
             Text(
                 "Google’s Photos Library API no longer lets apps read your whole library, so Wanderlust uses the Android photo picker " +

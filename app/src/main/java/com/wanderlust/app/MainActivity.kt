@@ -9,6 +9,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
+import kotlinx.coroutines.launch
 import com.wanderlust.app.ui.WanderlustNavHost
 import com.wanderlust.app.ui.theme.WanderlustTheme
 
@@ -26,6 +27,8 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         handleShare(intent)
         val container = (application as WanderlustApp).container
+        // quietly look for a newer release (at most every 12 h; never in debug builds)
+        container.appScope.launch { container.updater.checkInBackground() }
         setContent {
             WanderlustTheme {
                 CompositionLocalProvider(LocalApp provides container) {

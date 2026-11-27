@@ -144,3 +144,13 @@ class ScreenshotTest {
         assertTrue("waterfalls" in s.topWords)
     }
 }
+
+class VersionCompareTest {
+    @org.junit.Test fun compares() {
+        val c = com.wanderlust.app.update.AppUpdater.Companion::compareVersions
+        org.junit.Assert.assertTrue(c("1.10.0", "1.9.2") > 0)
+        org.junit.Assert.assertTrue(c("1.0.0", "1.0") == 0)
+        org.junit.Assert.assertTrue(c("1.0.1", "1.0.1-debug") == 0)
+        org.junit.Assert.assertTrue(c("2.0.0", "10.0.0") < 0)
+    }
+}

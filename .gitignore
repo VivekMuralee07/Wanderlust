@@ -8,3 +8,6 @@ captures/
 .kotlin/
 *.apk
 *.keystore
+keystore.properties
+*.jks
+dist/
