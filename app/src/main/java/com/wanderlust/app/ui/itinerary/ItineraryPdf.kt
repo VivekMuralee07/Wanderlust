@@ -113,7 +113,7 @@ object ItineraryPdf {
         newPage(true)
         val it = ItineraryBuilder.build(full)
         it.days.forEach { d ->
-            dayHeader("DAY ${d.index}", d.date.format(longDayFmt), d.sleepingAt?.let { "Staying at $it" })
+            dayHeader(if (d.index >= 1) "DAY ${d.index}" else "TRAVEL", d.date.format(longDayFmt), d.sleepingAt?.let { "Staying at $it" })
             if (d.events.isEmpty()) { ensure(20f); canvas.drawText("Free day — wander, rest, explore.", M + 96f, y + 10f, text(10f, gray)); y += 22f }
             d.events.forEachIndexed { i, e -> event(e, i == d.events.lastIndex) }
             y += 12f

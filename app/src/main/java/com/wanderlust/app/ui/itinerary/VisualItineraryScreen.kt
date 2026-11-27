@@ -120,7 +120,7 @@ fun VisualItineraryScreen(nav: NavHostController, tripId: Long) {
                     Spacer(Modifier.height(14.dp))
                     val flights = f.transports.count { TransportType.of(it.type) == TransportType.PLANE }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf("${itinerary.days.size} days", "$flights flights", "${f.lodgings.size} stays", "${f.places.size} places").forEach {
+                        listOf(plural(itinerary.days.size, "day"), plural(flights, "flight"), plural(f.lodgings.size, "stay"), plural(f.places.size, "place")).forEach {
                             Text(it, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
                                 modifier = Modifier.clip(RoundedCornerShape(50)).background(Color.White.copy(alpha = 0.18f)).padding(horizontal = 10.dp, vertical = 5.dp))
                         }
@@ -158,7 +158,7 @@ private fun DayBlock(d: ItineraryDay, p: TripPalette, index: Int) {
     val anim = remember { Animatable(0f) }
     LaunchedEffect(Unit) { anim.animateTo(1f, tween(450, delayMillis = (index * 60).coerceAtMost(400))) }
     Column(Modifier.graphicsLayer { alpha = anim.value; translationY = (1 - anim.value) * 60f }) {
-        DayHeader("${d.index}", d.date.format(longDayFmt), d.sleepingAt?.let { "🌙 $it" } ?: "", p)
+        DayHeader(if (d.index >= 1) "${d.index}" else "✈", d.date.format(longDayFmt), d.sleepingAt?.let { "🌙 $it" } ?: if (d.index < 1) "Travel day" else "", p)
         if (d.events.isEmpty()) {
             EventRow(TimelineEvent(EventKind.ACTIVITY, null, null, "🌿", "Free day", "Wander, rest, get lost on purpose"), p, isLast = true, muted = true)
         } else d.events.forEachIndexed { i, e -> EventRow(e, p, isLast = i == d.events.lastIndex) }
@@ -225,3 +225,5 @@ private fun EventRow(e: TimelineEvent, p: TripPalette, isLast: Boolean, muted: B
     }
 }
 
+
+private fun plural(n: Int, word: String) = "$n $word" + if (n == 1) "" else "s"

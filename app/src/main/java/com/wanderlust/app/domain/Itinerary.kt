@@ -142,7 +142,7 @@ object ItineraryBuilder {
         if (t.description.isNotBlank()) appendLine("About: ${t.description}")
         val it = build(full)
         it.days.forEach { d ->
-            appendLine("Day ${d.index} – ${d.date.format(longDayFmt)}${d.sleepingAt?.let { " (staying at $it)" } ?: ""}")
+            appendLine((if (d.index >= 1) "Day ${d.index}" else "Travel day") + " – ${d.date.format(longDayFmt)}${d.sleepingAt?.let { " (staying at $it)" } ?: ""}")
             if (d.events.isEmpty()) appendLine("  (free day)")
             d.events.forEach { e ->
                 append("  ${e.time?.format(timeFmt) ?: "—"} ${e.emoji} ${e.title}")

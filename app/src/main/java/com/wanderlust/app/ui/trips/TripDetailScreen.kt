@@ -311,7 +311,7 @@ private fun LazyListScope.plan(f: TripFull, nav: NavHostController) {
         GlassCard(Modifier.padding(horizontal = 20.dp, vertical = 6.dp).fillMaxWidth()) {
             Column(Modifier.padding(16.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Day ${d.index}", fontFamily = Display, fontWeight = FontWeight.Bold, fontSize = 20.sp, color = MaterialTheme.colorScheme.secondary)
+                    Text(if (d.index >= 1) "Day ${d.index}" else "Travel day", fontFamily = Display, fontWeight = FontWeight.Bold, fontSize = 20.sp, color = MaterialTheme.colorScheme.secondary)
                     Spacer(Modifier.width(10.dp))
                     Text(d.date.format(dayFmt), color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
                     TextButton(onClick = { nav.navigate(Routes.activity(f.trip.id, 0, d.date.toString())) }) { Text("+ Add") }

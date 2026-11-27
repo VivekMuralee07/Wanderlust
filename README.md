@@ -6,6 +6,14 @@ Wanderlust is a native **Android app written in Kotlin with Jetpack Compose**. I
 
 The data model and feature set follow the open-source [AdventureLog](https://github.com/seanmorley15/AdventureLog) project, rebuilt as an offline-first mobile app. No AdventureLog code is copied; it is a Django/SvelteKit web app under GPL-3.0.
 
+## Screenshots
+
+| Home | Trip | Bookings | Visual itinerary | Journal summary |
+|---|---|---|---|---|
+| ![](docs/screenshots/01_home.png) | ![](docs/screenshots/02_trip_overview.png) | ![](docs/screenshots/03_trip_bookings.png) | ![](docs/screenshots/04_visual_itinerary.png) | ![](docs/screenshots/05_journal_summary.png) |
+
+*(Rendered with Robolectric from the real screens, using sample data.)*
+
 ## Features
 
 | Feature | Details |

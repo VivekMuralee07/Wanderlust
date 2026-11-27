@@ -3,7 +3,7 @@ package com.wanderlust.app
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onRoot
-import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.performClick
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -54,7 +54,7 @@ class ScreenshotTest {
     private var iceland = 0L
 
     @Before
-    fun seed() = runBlocking {
+    fun seed(): Unit = runBlocking {
         app = ApplicationProvider.getApplicationContext<WanderlustApp>().container
         app.settings.update { it.copy(travelerName = "Vivek") }
         val repo = app.repo
@@ -116,8 +116,8 @@ class ScreenshotTest {
     @Test fun tripOverview() = render("02_trip_overview") { TripDetailScreen(rememberNavController(), kyoto) }
 
     @Test fun tripBookings() {
-        render("03_trip_bookings_tmp") { TripDetailScreen(rememberNavController(), kyoto) }
-        compose.onNodeWithText("Bookings").performClick()
+        render("03_tmp") { TripDetailScreen(rememberNavController(), kyoto) }
+        compose.onAllNodesWithText("Bookings")[0].performClick()
         settle()
         compose.onRoot().captureRoboImage("build/screenshots/03_trip_bookings.png")
     }
@@ -132,7 +132,7 @@ class ScreenshotTest {
         NavHost(nav, "s") { composable("s") { JournalSummaryScreen(nav, iceland) } }
     }
 
-    @Test fun itineraryLogic() = runBlocking {
+    @Test fun itineraryLogic(): Unit = runBlocking {
         val full = app.repo.tripFullOnce(kyoto)!!
         val it = ItineraryBuilder.build(full)
         assertEquals(8, it.days.size) // flight departs the day before the trip starts + 7 trip days
