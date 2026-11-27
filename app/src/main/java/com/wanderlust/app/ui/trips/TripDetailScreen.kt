@@ -107,7 +107,7 @@ import com.wanderlust.app.ui.theme.Night
 import com.wanderlust.app.ui.theme.Teal
 import com.wanderlust.app.ui.theme.Violet
 import com.wanderlust.app.ui.theme.palette
-import com.wanderlust.app.ui.world.PlacesMap
+import com.wanderlust.app.ui.world.MapExplorer
 import kotlinx.coroutines.launch
 import java.io.File
 
@@ -152,7 +152,7 @@ fun TripDetailScreen(nav: NavHostController, tripId: Long) {
                 DropdownMenu(expanded = addMenu, onDismissRequest = { addMenu = false }) {
                     DropdownMenuItem(text = { Text("✈️  Flight / transport") }, onClick = { addMenu = false; nav.navigate(Routes.transport(tripId)) })
                     DropdownMenuItem(text = { Text("🏨  Hotel / stay") }, onClick = { addMenu = false; nav.navigate(Routes.lodging(tripId)) })
-                    DropdownMenuItem(text = { Text("✨  Scan a ticket with AI") }, onClick = { addMenu = false; nav.navigate(Routes.scan(tripId)) })
+                    DropdownMenuItem(text = { Text("✨  Import tickets & hotels (AI)") }, onClick = { addMenu = false; nav.navigate(Routes.scan(tripId, "bookings")) })
                 }
             }
         },
@@ -187,9 +187,8 @@ fun TripDetailScreen(nav: NavHostController, tripId: Long) {
                         })
                 }
                 TripTab.MAP -> item {
-                    val mapped = f.places.filter { it.latitude != null }
-                    if (mapped.isEmpty()) EmptyState("🗺️", "Nothing on the map yet", "Search places with the map search when adding them and they’ll appear here.")
-                    else PlacesMap(mapped, Modifier.padding(horizontal = 20.dp).fillMaxWidth().height(460.dp).clip(RoundedCornerShape(24.dp)))
+                    MapExplorer(f.places, listOf(f.trip), fixedTripId = f.trip.id, centerOn = f.trip.destination.ifBlank { null },
+                        modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth(), mapHeight = 420)
                 }
             }
         }
@@ -247,6 +246,8 @@ private fun LazyListScope.overview(f: TripFull, nav: NavHostController, onExport
             StatTile("$packed/${f.checklist.size}", "Checked", Modifier.weight(1f), Violet)
         }
     }
+    val docs = f.attachments.filter { it.ownerType == OwnerType.TRIP }
+    if (docs.isNotEmpty()) item { TripDocuments(docs) }
     if (t.description.isNotBlank()) item {
         Text(t.description, modifier = Modifier.padding(20.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
@@ -281,8 +282,13 @@ private fun FeatureCard(emoji: String, title: String, body: String, colors: List
 }
 
 private fun LazyListScope.bookings(f: TripFull, nav: NavHostController) {
+    item {
+        OutlinedButton(onClick = { nav.navigate(Routes.scan(f.trip.id, "bookings")) }, modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth()) {
+            Text("✨  Import tickets & hotel confirmations (AI)")
+        }
+    }
     if (f.transports.isEmpty() && f.lodgings.isEmpty()) item {
-        EmptyState("🎫", "No bookings yet", "Upload your flight and hotel tickets — AI can read them and fill everything in.")
+        EmptyState("🎫", "No bookings yet", "Upload your flight and hotel tickets — pick several at once and AI fills in each booking.")
     }
     val p = palette(f.trip.themeIndex)
     if (f.transports.isNotEmpty()) item { SmallLabel("Transport", Modifier.padding(horizontal = 20.dp, vertical = 6.dp)) }
@@ -302,8 +308,9 @@ private fun LazyListScope.bookings(f: TripFull, nav: NavHostController) {
 private fun LazyListScope.plan(f: TripFull, nav: NavHostController) {
     val it = ItineraryBuilder.build(f)
     item {
-        OutlinedButton(onClick = { nav.navigate(Routes.itinerary(f.trip.id)) }, modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth()) {
-            Text("✨  Open the visual itinerary")
+        Row(Modifier.padding(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = { nav.navigate(Routes.itinerary(f.trip.id)) }, modifier = Modifier.weight(1f)) { Text("🗺️  Visual view") }
+            OutlinedButton(onClick = { nav.navigate(Routes.scan(f.trip.id, "itinerary")) }, modifier = Modifier.weight(1f)) { Text("✨  Import (AI)") }
         }
     }
     if (it.days.isEmpty()) item { EmptyState("📅", "Set your trip dates", "Add dates to the trip and each day will appear here.") }
@@ -477,3 +484,22 @@ private fun Memories(f: TripFull, onAdd: () -> Unit, onOpenGooglePhotos: () -> U
     }
 }
 
+
+@Composable
+private fun TripDocuments(docs: List<com.wanderlust.app.data.Attachment>) {
+    val app = LocalApp.current
+    val context = LocalContext.current
+    Column(Modifier.padding(start = 20.dp, end = 8.dp, top = 18.dp)) {
+        SmallLabel("Trip documents")
+        docs.forEach { d ->
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+                .clickable { app.files.open(context, d.filePath, d.mimeType) }) {
+                Text(if (d.mimeType.startsWith("image/")) "🖼️" else "📄", fontSize = 18.sp)
+                Text("  ${d.name}", Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                IconButton(onClick = { app.appScope.launch { app.repo.deleteAttachment(d) } }) {
+                    Icon(Icons.Default.Delete, "Remove", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+    }
+}

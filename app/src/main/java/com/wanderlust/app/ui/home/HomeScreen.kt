@@ -295,7 +295,7 @@ private fun EmptyHero(onCreate: () -> Unit) {
 private fun QuickActions(onNew: () -> Unit, onScan: () -> Unit, onAsk: () -> Unit, onWorld: () -> Unit) {
     Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 20.dp), horizontalArrangement = Arrangement.SpaceBetween) {
         QuickAction(Icons.Default.Add, "New trip", listOf(Coral, Gold), onNew)
-        QuickAction(Icons.Default.DocumentScanner, "Scan ticket", listOf(Teal, Sky), onScan)
+        QuickAction(Icons.Default.DocumentScanner, "AI import", listOf(Teal, Sky), onScan)
         QuickAction(Icons.Default.AutoAwesome, "Ask AI", listOf(Violet, Coral), onAsk)
         QuickAction(Icons.Default.Public, "My world", listOf(Color(0xFF134E5E), Color(0xFF71B280)), onWorld)
     }

@@ -46,6 +46,12 @@ import androidx.navigation.NavHostController
 import com.wanderlust.app.LocalApp
 import com.wanderlust.app.ai.AiException
 import com.wanderlust.app.ai.BookingDraft
+import com.wanderlust.app.ai.PlanDraft
+import com.wanderlust.app.ai.SourceFile
+import com.wanderlust.app.domain.PlanSaver
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
+import androidx.compose.foundation.layout.height
 import com.wanderlust.app.data.Attachment
 import com.wanderlust.app.data.Lodging
 import com.wanderlust.app.data.LodgingType
@@ -64,11 +70,14 @@ import java.io.File
 data class TicketFile(val path: String, val name: String, val mime: String, val saved: Attachment? = null)
 
 /**
- * Ticket uploader shared by the flight and hotel editors: attach PDFs/images, open them, and let
- * Claude read a ticket to fill in the form.
+ * Ticket uploader shared by the flight and hotel editors: attach several PDFs/images, open them, and let
+ * Claude read them all. The first matching booking fills this form; any further flights/stays found are
+ * offered as separate bookings (each with its own file attached).
  */
 @Composable
 fun TicketSection(
+    tripId: Long,
+    kind: String,                       // "transport" or "lodging"
     files: MutableList<TicketFile>,
     removed: MutableList<Attachment>,
     onAutoFill: (BookingDraft) -> Unit,
@@ -78,18 +87,24 @@ fun TicketSection(
     val scope = rememberCoroutineScope()
     val settings by app.settings.state.collectAsState()
     var busy by remember { mutableStateOf(false) }
+    var extras by remember { mutableStateOf<Pair<PlanDraft, List<SourceFile>>?>(null) }
+    var primarySource by remember { mutableStateOf(-1) }
 
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) scope.launch {
-            app.files.import(uri, "attachments")?.let { files += TicketFile(it.path, it.name, it.mimeType) }
-                ?: Toast.makeText(context, "Couldn't read that file", Toast.LENGTH_SHORT).show()
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        if (uris.isNotEmpty()) scope.launch {
+            uris.forEach { uri ->
+                app.files.import(uri, "attachments")?.let { files += TicketFile(it.path, it.name, it.mimeType) }
+                    ?: Toast.makeText(context, "Couldn't read a file", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
     GlassCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             SmallLabel("Tickets & confirmations")
-            if (files.isEmpty()) Text("Upload your e-ticket, boarding pass or booking confirmation (PDF or image).",
+            if (files.isEmpty()) Text(
+                if (kind == "lodging") "Upload hotel confirmations (PDFs or screenshots). Pick several — AI creates one stay per booking."
+                else "Upload e-tickets or boarding passes (PDF or image). Pick several — AI creates one booking per flight.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
             files.forEach { f ->
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -109,20 +124,37 @@ fun TicketSection(
                 OutlinedButton(onClick = { picker.launch(arrayOf("application/pdf", "image/*")) }) {
                     Icon(Icons.Default.AttachFile, null); Spacer(Modifier.width(6.dp)); Text("Upload")
                 }
-                val target = files.lastOrNull()
                 FilledTonalButton(
-                    enabled = target != null && !busy,
+                    enabled = files.isNotEmpty() && !busy,
                     onClick = {
                         if (!settings.aiEnabled) {
                             Toast.makeText(context, "Add an Anthropic API key in Settings to auto-fill from tickets", Toast.LENGTH_LONG).show()
                             return@FilledTonalButton
                         }
-                        val t = target ?: return@FilledTonalButton
+                        val sources = files.map { SourceFile(it.path, it.mime, it.name) }
                         busy = true
                         scope.launch {
                             try {
-                                onAutoFill(app.ai.extractBooking(t.path, t.mime))
-                                Toast.makeText(context, "Filled in from your ticket ✨ — please double-check", Toast.LENGTH_LONG).show()
+                                val trip = app.repo.trip(tripId)
+                                val plan = app.ai.extractPlan(sources, trip?.destination.orEmpty(), trip?.startDate, trip?.endDate)
+                                val mine = if (kind == "lodging") plan.lodgings else plan.transports
+                                val others = if (kind == "lodging") plan.transports else plan.lodgings
+                                mine.firstOrNull()?.let {
+                                    onAutoFill(it)
+                                    Toast.makeText(context, "Filled in from your file ✨ — please double-check", Toast.LENGTH_LONG).show()
+                                }
+                                val rest = mine.drop(1) + others
+                                if (rest.isNotEmpty()) {
+                                    extras = plan.copy(
+                                        transports = rest.filter { it.kind == "transport" },
+                                        lodgings = rest.filter { it.kind == "lodging" },
+                                        places = emptyList(), activities = emptyList(),
+                                    ) to sources
+                                } else if (mine.isEmpty()) {
+                                    Toast.makeText(context, if (kind == "lodging") "No hotel booking found in these files" else "No ticket found in these files", Toast.LENGTH_LONG).show()
+                                }
+                                // remember which file filled this form, so other files can move to their own bookings
+                                primarySource = mine.firstOrNull()?.sourceFile ?: -1
                             } catch (e: AiException) {
                                 Toast.makeText(context, e.message, Toast.LENGTH_LONG).show()
                             } finally { busy = false }
@@ -135,7 +167,39 @@ fun TicketSection(
             }
         }
     }
+
+    extras?.let { (plan, sources) ->
+        AlertDialog(
+            onDismissRequest = { extras = null },
+            title = { Text("Found ${plan.count} more booking${if (plan.count == 1) "" else "s"}") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    plan.transports.forEach { d -> Text("${TransportType.of(d.transportType).emoji}  ${listOf(d.carrier, d.number).filter { it.isNotBlank() }.joinToString(" ")} ${d.fromCode.ifBlank { d.fromLocation }} → ${d.toCode.ifBlank { d.toLocation }}") }
+                    plan.lodgings.forEach { d -> Text("${LodgingType.of(d.lodgingType).emoji}  ${d.hotelName.ifBlank { "Stay" }}${d.checkIn?.let { " · " + it.format(com.wanderlust.app.domain.dayFmt) } ?: ""}") }
+                    Spacer(Modifier.height(6.dp))
+                    Text("Add them to this trip as separate bookings, each with its own file?", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    extras = null
+                    // files that only belong to the extra bookings move out of this form
+                    val usedByExtras = (plan.transports + plan.lodgings).map { it.sourceFile }.toSet()
+                    val moving = sources.indices.filter { it in usedByExtras && it != primarySource }.mapNotNull { i -> files.getOrNull(i)?.takeIf { it.saved == null } }
+                    app.appScope.launch {
+                        PlanSaver.save(app, tripId, plan, sources, copyAll = true)
+                        withContext(Dispatchers.Main) {
+                            moving.forEach { files.remove(it); File(it.path).delete() }
+                            Toast.makeText(context, "Added ${plan.count} more booking${if (plan.count == 1) "" else "s"} to the trip", Toast.LENGTH_LONG).show()
+                        }
+                    }
+                }) { Text("Add them") }
+            },
+            dismissButton = { TextButton(onClick = { extras = null }) { Text("No thanks") } },
+        )
+    }
 }
+
 
 /** Persists newly added ticket files as attachments and deletes removed ones. */
 suspend fun saveTickets(app: com.wanderlust.app.AppContainer, tripId: Long, ownerType: String, ownerId: Long, files: List<TicketFile>, removed: List<Attachment>) {
@@ -156,6 +220,7 @@ fun Transport.applyDraft(d: BookingDraft) = copy(
 )
 
 fun Lodging.applyDraft(d: BookingDraft) = copy(
+    type = if (d.kind == "lodging") d.lodgingType else type,
     name = d.hotelName.ifBlank { name }, address = d.address.ifBlank { address },
     checkIn = d.checkIn ?: checkIn, checkOut = d.checkOut ?: checkOut,
     reservationNumber = d.bookingRef.ifBlank { reservationNumber },
@@ -200,7 +265,7 @@ fun TransportEditor(nav: NavHostController, tripId: Long, id: Long) {
         onDelete = if (id != 0L) ({ app.appScope.launch { app.repo.deleteTransport(t); withContext(Dispatchers.Main) { nav.popBackStack() } } }) else null,
     ) {
         ChipPicker(TransportType.entries, type, { "${it.emoji} ${it.label}" }) { t = t.copy(type = it.name) }
-        TicketSection(files, removed) { d -> t = t.applyDraft(d) }
+        TicketSection(tripId, "transport", files, removed) { d -> t = t.applyDraft(d) }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Field(if (type == TransportType.PLANE) "Airline" else "Operator", t.name, { t = t.copy(name = it) }, Modifier.weight(1.4f))
             Field(if (type == TransportType.PLANE) "Flight no." else "Number", t.flightNumber, { t = t.copy(flightNumber = it) }, Modifier.weight(1f), caps = KeyboardCapitalization.Characters)
@@ -258,7 +323,7 @@ fun LodgingEditor(nav: NavHostController, tripId: Long, id: Long) {
         onDelete = if (id != 0L) ({ app.appScope.launch { app.repo.deleteLodging(l); withContext(Dispatchers.Main) { nav.popBackStack() } } }) else null,
     ) {
         ChipPicker(LodgingType.entries, type, { "${it.emoji} ${it.label}" }) { l = l.copy(type = it.name) }
-        TicketSection(files, removed) { d -> l = l.applyDraft(d) }
+        TicketSection(tripId, "lodging", files, removed) { d -> l = l.applyDraft(d) }
         Field("Name", l.name, { l = l.copy(name = it) })
         Field("Address", l.address, { l = l.copy(address = it) })
         DateTimeField("Check-in", l.checkIn, { l = l.copy(checkIn = it) }, defaultDate = defaultDate)

@@ -82,16 +82,11 @@ fun WorldScreen(@Suppress("UNUSED_PARAMETER") nav: NavHostController) {
         item {
             Column(Modifier.statusBarsPadding().padding(20.dp)) {
                 Text("Your world", style = MaterialTheme.typography.displaySmall)
-                Text("Every place you’ve saved, pinned on one map.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Search anywhere, save it to a trip, and see every place on one map.", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
         item {
-            val mapped = places.filter { it.latitude != null && it.longitude != null }
-            if (mapped.isEmpty()) {
-                EmptyState("🗺️", "Your map is waiting", "Use “Find on the map” when adding places and they’ll be pinned here.")
-            } else {
-                PlacesMap(mapped, Modifier.padding(horizontal = 20.dp).fillMaxWidth().height(320.dp).clip(RoundedCornerShape(28.dp)))
-            }
+            MapExplorer(places, trips, fixedTripId = null, centerOn = null, modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth(), mapHeight = 340)
         }
         item {
             Spacer(Modifier.height(16.dp))
@@ -143,47 +138,3 @@ fun WorldScreen(@Suppress("UNUSED_PARAMETER") nav: NavHostController) {
         }
     }
 }
-
-/** OpenStreetMap view with a coloured pin per place (green = visited). */
-@Composable
-fun PlacesMap(places: List<Place>, modifier: Modifier = Modifier) {
-    val context = LocalContext.current
-    val map = remember {
-        MapView(context).apply {
-            setTileSource(TileSourceFactory.MAPNIK)
-            setMultiTouchControls(true)
-            zoomController.setVisibility(org.osmdroid.views.CustomZoomButtonsController.Visibility.NEVER)
-            minZoomLevel = 2.0
-        }
-    }
-    DisposableEffect(map) {
-        map.onResume()
-        onDispose { map.onPause(); map.onDetach() }
-    }
-    AndroidView({ map }, modifier) { mv ->
-        mv.overlays.clear()
-        places.forEach { p ->
-            val m = Marker(mv).apply {
-                position = GeoPoint(p.latitude!!, p.longitude!!)
-                title = "${PlaceCategory.of(p.category).emoji} ${p.name}"
-                snippet = listOf(p.city, p.countryName).filter { it.isNotBlank() }.joinToString(", ")
-                icon = ShapeDrawable(OvalShape()).apply {
-                    intrinsicWidth = 44; intrinsicHeight = 44
-                    paint.color = (if (p.visited) Teal else Coral).toArgb()
-                }
-                setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
-            }
-            mv.overlays.add(m)
-        }
-        mv.post {
-            if (places.size == 1) {
-                mv.controller.setZoom(12.0); mv.controller.setCenter(GeoPoint(places[0].latitude!!, places[0].longitude!!))
-            } else if (places.size > 1) {
-                val box = BoundingBox.fromGeoPointsSafe(places.map { GeoPoint(it.latitude!!, it.longitude!!) })
-                runCatching { mv.zoomToBoundingBox(box.increaseByScale(1.4f), false, 60) }
-            }
-        }
-        mv.invalidate()
-    }
-}
-

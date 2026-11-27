@@ -5,6 +5,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -120,6 +121,13 @@ class ScreenshotTest {
         compose.onAllNodesWithText("Bookings")[0].performClick()
         settle()
         compose.onRoot().captureRoboImage("build/screenshots/03_trip_bookings.png")
+    }
+
+    @Test fun tripMap() {
+        render("06_tmp") { TripDetailScreen(rememberNavController(), kyoto) }
+        compose.onAllNodesWithText("Map")[0].performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.OnClick)
+        settle()
+        compose.onRoot().captureRoboImage("build/screenshots/06_trip_map.png")
     }
 
     @Test fun visualItinerary() = render("04_visual_itinerary") {

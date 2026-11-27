@@ -12,6 +12,7 @@ import com.anthropic.models.messages.Base64PdfSource
 import com.anthropic.models.messages.ContentBlockParam
 import com.anthropic.models.messages.DocumentBlockParam
 import com.anthropic.models.messages.ImageBlockParam
+import com.anthropic.models.messages.JsonOutputFormat
 import com.anthropic.models.messages.Message
 import com.anthropic.models.messages.MessageCreateParams
 import com.anthropic.models.messages.MessageParam
@@ -35,9 +36,11 @@ import java.time.LocalTime
 
 class AiException(message: String) : Exception(message)
 
-/** Fields Claude extracted from a ticket / booking confirmation. */
+/** A flight/transport or a stay that Claude extracted from a document. */
 data class BookingDraft(
     val kind: String,                  // "transport" | "lodging" | "unknown"
+    val sourceFile: Int = -1,          // index of the uploaded file it came from
+    val lodgingType: String = "HOTEL",
     val transportType: String = "PLANE",
     val carrier: String = "",
     val number: String = "",
@@ -57,6 +60,27 @@ data class BookingDraft(
     val passenger: String = "",
     val notes: String = "",
 )
+
+data class PlaceDraft(val sourceFile: Int, val name: String, val category: String, val city: String, val country: String, val visitAt: LocalDateTime?, val notes: String)
+
+data class ActivityDraft(val sourceFile: Int, val date: LocalDate, val time: LocalTime?, val endTime: LocalTime?, val title: String, val emoji: String, val notes: String)
+
+/** Everything Claude found across a set of uploaded tickets / confirmations / itineraries. */
+data class PlanDraft(
+    val destination: String,
+    val startDate: LocalDate?,
+    val endDate: LocalDate?,
+    val transports: List<BookingDraft>,
+    val lodgings: List<BookingDraft>,
+    val places: List<PlaceDraft>,
+    val activities: List<ActivityDraft>,
+) {
+    val isEmpty get() = transports.isEmpty() && lodgings.isEmpty() && places.isEmpty() && activities.isEmpty()
+    val count get() = transports.size + lodgings.size + places.size + activities.size
+}
+
+/** A file to analyse. */
+data class SourceFile(val path: String, val mimeType: String, val name: String)
 
 /**
  * Wraps the Claude API (official Anthropic Java SDK, used from Kotlin).
@@ -183,74 +207,72 @@ class ClaudeService(private val settings: SettingsStore, private val repo: Trave
     }
 
     // ------------------------------------------------------------------------------------------
-    // Ticket / booking extraction (image or PDF)
+    // Document extraction: tickets, hotel confirmations, whole itineraries (images and PDFs)
     // ------------------------------------------------------------------------------------------
 
-    suspend fun extractBooking(path: String, mimeType: String): BookingDraft = withContext(Dispatchers.IO) {
-        val s = settings.state.value
-        val client = client(s)
-        val bytes = repo.fileStore().readBytes(path)
-        if (bytes.size > 20 * 1024 * 1024) throw AiException("That file is too large to analyse (max 20 MB).")
-        val b64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
-
-        val fileBlock = when {
-            mimeType == "application/pdf" -> ContentBlockParam.ofDocument(
-                DocumentBlockParam.builder().source(Base64PdfSource.builder().data(b64).build()).build()
-            )
-            mimeType.startsWith("image/") -> {
-                val media = when (mimeType) {
-                    "image/png" -> Base64ImageSource.MediaType.IMAGE_PNG
-                    "image/webp" -> Base64ImageSource.MediaType.IMAGE_WEBP
-                    "image/gif" -> Base64ImageSource.MediaType.IMAGE_GIF
-                    else -> Base64ImageSource.MediaType.IMAGE_JPEG
+    /**
+     * Reads any number of images / PDFs in one request and returns every flight, stay, place and
+     * activity found, each tagged with the index of the file it came from. [tripStart]/[tripEnd]
+     * help Claude resolve "Day 1"-style itineraries and dates without a year.
+     */
+    suspend fun extractPlan(files: List<SourceFile>, tripDestination: String = "", tripStart: LocalDate? = null, tripEnd: LocalDate? = null): PlanDraft =
+        withContext(Dispatchers.IO) {
+            if (files.isEmpty()) throw AiException("Add at least one file.")
+            val s = settings.state.value
+            val client = client(s)
+            var totalBytes = 0L
+            val blocks = mutableListOf<ContentBlockParam>()
+            files.forEachIndexed { i, f ->
+                blocks += ContentBlockParam.ofText(TextBlockParam.builder().text("File $i: ${f.name}").build())
+                when {
+                    f.mimeType == "application/pdf" -> {
+                        val bytes = java.io.File(f.path).readBytes()
+                        totalBytes += bytes.size
+                        blocks += ContentBlockParam.ofDocument(
+                            DocumentBlockParam.builder().source(Base64PdfSource.builder().data(Base64.encodeToString(bytes, Base64.NO_WRAP)).build()).build()
+                        )
+                    }
+                    f.mimeType.startsWith("image/") -> {
+                        val jpeg = ImageShrinker.toJpeg(f.path) ?: throw AiException("Couldn't read image ${f.name}")
+                        totalBytes += jpeg.size
+                        blocks += ContentBlockParam.ofImage(
+                            ImageBlockParam.builder().source(
+                                Base64ImageSource.builder().data(Base64.encodeToString(jpeg, Base64.NO_WRAP)).mediaType(Base64ImageSource.MediaType.IMAGE_JPEG).build()
+                            ).build()
+                        )
+                    }
+                    else -> throw AiException("${f.name}: only PDFs and images can be read.")
                 }
-                ContentBlockParam.ofImage(
-                    ImageBlockParam.builder().source(Base64ImageSource.builder().data(b64).mediaType(media).build()).build()
-                )
             }
-            else -> throw AiException("Only PDFs and images can be scanned.")
-        }
+            if (totalBytes > 22L * 1024 * 1024) throw AiException("Those files are too large to read in one go (max ~22 MB). Try fewer files at a time.")
+            val context = buildString {
+                append("Today is ${LocalDate.now()}.")
+                if (tripDestination.isNotBlank()) append(" The trip is to $tripDestination.")
+                if (tripStart != null) append(" The trip runs ${tripStart}${tripEnd?.let { " to $it" } ?: ""}; if the documents say \"Day 1\", \"Day 2\"... without dates, Day 1 is $tripStart.")
+                append(" Extract everything from the ${files.size} file(s) above.")
+            }
+            blocks += ContentBlockParam.ofText(TextBlockParam.builder().text(context).build())
 
-        friendly {
-            val params = MessageCreateParams.builder()
-                .model(s.model)
-                .maxTokens(4000L)
-                .system(EXTRACT_PROMPT)
-                .outputConfig(OutputConfig.builder().effort(OutputConfig.Effort.LOW).build())
-                .addUserMessageOfContentBlockParams(listOf(
-                    fileBlock,
-                    ContentBlockParam.ofText(TextBlockParam.builder().text("Extract the booking details from this document as JSON.").build()),
-                ))
-                .withFallbacks(s.model)
-                .build()
-            val response = client.messages().create(params)
-            response.checkRefusal()
-            parseDraft(response.text())
+            friendly {
+                val params = MessageCreateParams.builder()
+                    .model(s.model)
+                    .maxTokens(16000L)
+                    .system(PLAN_PROMPT)
+                    .outputConfig(
+                        OutputConfig.builder()
+                            .effort(OutputConfig.Effort.MEDIUM)
+                            .format(JsonOutputFormat.builder().schema(PlanSchema.schema).build())
+                            .build()
+                    )
+                    .addUserMessageOfContentBlockParams(blocks)
+                    .withFallbacks(s.model)
+                    .build()
+                val response = client.messages().create(params)
+                response.checkRefusal()
+                if (response.stopReason().orElse(null) == StopReason.MAX_TOKENS) throw AiException("That itinerary is too long to read at once — try fewer pages per import.")
+                PlanSchema.parse(response.text(), files.size)
+            }
         }
-    }
-
-    private fun parseDraft(raw: String): BookingDraft {
-        val start = raw.indexOf('{')
-        val end = raw.lastIndexOf('}')
-        val o = runCatching { JSONObject(raw.substring(start, end + 1)) }.getOrElse { throw AiException("Couldn't read booking details from that file.") }
-        fun str(k: String) = o.optString(k, "").takeIf { it != "null" } ?: ""
-        fun dt(k: String) = str(k).takeIf { it.isNotBlank() }?.let { v ->
-            runCatching { LocalDateTime.parse(v.take(19)) }.getOrNull()
-                ?: runCatching { LocalDate.parse(v.take(10)).atTime(LocalTime.NOON) }.getOrNull()
-        }
-        return BookingDraft(
-            kind = str("kind").ifBlank { "unknown" },
-            transportType = str("transport_type").uppercase().ifBlank { "PLANE" },
-            carrier = str("carrier"), number = str("number"),
-            fromLocation = str("from_location"), toLocation = str("to_location"),
-            fromCode = str("from_code"), toCode = str("to_code"),
-            departure = dt("departure"), arrival = dt("arrival"),
-            seat = str("seat"), gate = str("gate"), bookingRef = str("booking_reference"),
-            hotelName = str("hotel_name"), address = str("address"),
-            checkIn = dt("check_in"), checkOut = dt("check_out"),
-            passenger = str("passenger_name"), notes = str("notes"),
-        )
-    }
 
     // ------------------------------------------------------------------------------------------
     // Journal story
@@ -277,29 +299,20 @@ class ClaudeService(private val settings: SettingsStore, private val repo: Trave
     }
 
     companion object {
-        private val EXTRACT_PROMPT = """
-            You read travel documents: flight e-tickets, boarding passes, train/bus tickets, ferry tickets and hotel
-            or rental booking confirmations. Reply with ONE JSON object and nothing else, using exactly these keys
-            (use "" when a value is not in the document; never invent values):
-            {
-              "kind": "transport" | "lodging" | "unknown",
-              "transport_type": "PLANE" | "TRAIN" | "BUS" | "CAR" | "BOAT" | "OTHER",
-              "carrier": "airline / rail company / operator name",
-              "number": "flight or train number, e.g. LH 400",
-              "from_location": "departure city or airport name",
-              "to_location": "arrival city or airport name",
-              "from_code": "IATA airport or station code",
-              "to_code": "IATA airport or station code",
-              "departure": "local departure time as ISO-8601 yyyy-MM-ddTHH:mm:ss",
-              "arrival": "local arrival time as ISO-8601 yyyy-MM-ddTHH:mm:ss",
-              "seat": "", "gate": "",
-              "booking_reference": "PNR / confirmation / reservation number",
-              "hotel_name": "", "address": "",
-              "check_in": "ISO-8601 local date-time", "check_out": "ISO-8601 local date-time",
-              "passenger_name": "",
-              "notes": "one short line of other useful info (baggage, terminal, breakfast included...)"
-            }
-            If a document has several flight legs, describe the first leg and list the others in "notes".
+        private val PLAN_PROMPT = """
+            You read travel documents — flight e-tickets, boarding passes, train/bus/ferry tickets, hotel and
+            rental confirmations, and full trip itineraries from travel agents or tour operators — and extract
+            structured trip data. Rules:
+            - Extract every distinct booking: one entry per flight leg / train ride, one entry per stay.
+              A single file may contain several bookings; several files may describe the same booking — merge duplicates.
+            - source_file is the number of the file the item came from (files are labelled "File 0", "File 1", ...).
+            - Use local times exactly as printed, formatted yyyy-MM-ddTHH:mm for date-times, yyyy-MM-dd for dates, HH:mm for times.
+              Use "" for anything not stated. Never invent bookings, places, times or reference numbers.
+            - Put sightseeing stops, attractions, restaurants and landmarks named in an itinerary into "places"
+              (with the day they are planned, if given). Put other scheduled things (tours, transfers, meals,
+              free time, shows, meetings) into "activities" with a fitting single emoji.
+            - Do not repeat flights or hotel stays as activities or places.
+            - trip: overall destination (e.g. "Taipei, Taiwan") and first/last dates covered, if apparent.
         """.trimIndent()
 
         private val STORY_PROMPT = """

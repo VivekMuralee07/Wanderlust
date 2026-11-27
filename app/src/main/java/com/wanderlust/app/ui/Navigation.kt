@@ -39,7 +39,7 @@ import com.wanderlust.app.ui.editors.PlaceEditor
 import com.wanderlust.app.ui.editors.TransportEditor
 import com.wanderlust.app.ui.editors.TripEditor
 import com.wanderlust.app.ui.home.HomeScreen
-import com.wanderlust.app.ui.importing.ScanTicketScreen
+import com.wanderlust.app.ui.importing.SmartImportScreen
 import com.wanderlust.app.ui.importing.ShareImportScreen
 import com.wanderlust.app.ui.itinerary.VisualItineraryScreen
 import com.wanderlust.app.ui.journal.JournalSummaryScreen
@@ -66,7 +66,7 @@ object Routes {
     fun journal(tripId: Long, id: Long = 0) = "journal/$tripId/$id"
     fun itinerary(tripId: Long) = "itinerary/$tripId"
     fun summary(tripId: Long) = "summary/$tripId"
-    fun scan(tripId: Long = 0) = "$SCAN?tripId=$tripId"
+    fun scan(tripId: Long = 0, mode: String = "bookings") = "$SCAN?tripId=$tripId&mode=$mode"
 }
 
 private data class Tab(val route: String, val label: String, val icon: ImageVector)
@@ -118,9 +118,12 @@ fun WanderlustNavHost(shared: SharedPayload?, onSharedConsumed: () -> Unit) {
                 composable(Routes.WORLD) { WorldScreen(nav) }
                 composable(Routes.SETTINGS) { SettingsScreen(nav) }
                 composable(
-                    "${Routes.SCAN}?tripId={tripId}",
-                    arguments = listOf(navArgument("tripId") { type = NavType.LongType; defaultValue = 0L }),
-                ) { ScanTicketScreen(nav, it.arguments!!.getLong("tripId")) }
+                    "${Routes.SCAN}?tripId={tripId}&mode={mode}",
+                    arguments = listOf(
+                        navArgument("tripId") { type = NavType.LongType; defaultValue = 0L },
+                        navArgument("mode") { type = NavType.StringType; defaultValue = "bookings" },
+                    ),
+                ) { SmartImportScreen(nav, it.arguments!!.getLong("tripId"), it.arguments!!.getString("mode") ?: "bookings") }
                 composable(Routes.SHARE) { ShareImportScreen(nav, shared, onSharedConsumed) }
 
                 composable("trip/{id}", arguments = listOf(navArgument("id") { type = NavType.LongType })) {
