@@ -1,7 +1,10 @@
 # Builds a signed release APK and publishes it as a GitHub Release when a version tag is pushed.
 # The app's in-app updater picks up the newest release automatically.
 #
-#   git tag v1.1.0 && git push origin v1.1.0
+# Start a release either way:
+#   - git tag v1.1.0 && git push origin v1.1.0
+#   - or on GitHub: Releases → Draft a new release → create tag v1.1.0 → Publish
+#     (the signed APK is attached to that release a few minutes later)
 #
 # Required repository secrets (Settings → Secrets and variables → Actions):
 #   KEYSTORE_BASE64     base64 of your release keystore (.jks)
@@ -16,6 +19,10 @@ on:
 
 permissions:
   contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   release:
@@ -68,9 +75,15 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" "Wanderlust-${{ steps.version.outputs.name }}.apk" \
-            --title "Wanderlust ${{ steps.version.outputs.name }}" \
-            --generate-notes
+          APK="Wanderlust-${{ steps.version.outputs.name }}.apk"
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            # release was created on GitHub's website: just attach the APK
+            gh release upload "$GITHUB_REF_NAME" "$APK" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" "$APK" \
+              --title "Wanderlust ${{ steps.version.outputs.name }}" \
+              --generate-notes
+          fi
 
       - name: Clean up key
         if: always()
