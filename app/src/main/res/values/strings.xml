@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">Wanderlust</string>
+    <string name="share_to_memories">Add to Wanderlust memories</string>
+    <string name="share_ticket">Import ticket to Wanderlust</string>
+</resources>

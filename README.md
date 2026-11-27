@@ -1,2 +1,84 @@
 # Wanderlust
-This is designed to track all travel histories, flight and hotel tickets, with lots of memories!
+
+This app keeps all your travel history, flight and hotel tickets, and memories in one place.
+
+Wanderlust is a native **Android app written in Kotlin with Jetpack Compose**. It keeps track of everything for a trip: flights and other transport, hotels, places, itinerary, checklists, journal and photos. From those it builds an illustrated day-by-day itinerary and counts down to take-off. An AI travel agent built on Claude answers your travel questions.
+
+The data model and feature set follow the open-source [AdventureLog](https://github.com/seanmorley15/AdventureLog) project, rebuilt as an offline-first mobile app. No AdventureLog code is copied; it is a Django/SvelteKit web app under GPL-3.0.
+
+## Features
+
+| Feature | Details |
+|---|---|
+| **Striking home screen** | Animated aurora background with twinkling stars, a plane flying along a dashed route, a hero card for your next trip with a **live countdown (days · hrs · min · sec)**, a carousel of upcoming trips, quick actions, travel stats, a polaroid-style memories strip and "Relive" for past trips. |
+| **Trips** (AdventureLog *Collections*) | Name, destination, dates, description, cover photo or a generated gradient "postcard" in 7 colour themes. Filters: upcoming, planning, past, archived. |
+| **Flight & transport tickets** (AdventureLog *Transportation*) | Plane, train, bus, car, ferry and more. Fields: flight number, from/to with airport codes, departure/arrival, booking ref (PNR), seat, gate. Shown as **boarding-pass cards**. |
+| **Hotel tickets** (AdventureLog *Lodging*) | Hotel, hostel, Airbnb-style stays and more. Fields: check-in/out, reservation number, rating. Shown as key-card style cards with a night count. |
+| **Upload tickets** | Attach PDFs or images to any booking. They are copied into private app storage and open with one tap. You can also share a ticket PDF into the app from Gmail or an airline app. |
+| **AI ticket scanning** | "Scan ticket" (or *Auto-fill with AI* in an editor): Claude reads the PDF or photo and fills in carrier, flight number, route, times, seat and PNR, or the hotel's dates and reservation number. If needed it also creates the trip. |
+| **Visual itinerary** | Builds a timeline from your flights, check-ins and check-outs, places and activities. Each day gets a header and shows where you sleep that night. There are 7 switchable styles. **Export as a designed multi-page PDF**, or share as text. |
+| **Places** (AdventureLog *Locations/Visits*) | 15 categories, rating, visited flag, visit time. **Search on OpenStreetMap (Nominatim)**, the same geocoder AdventureLog uses, to get coordinates, city and country. |
+| **Maps** | OpenStreetMap map for each trip and a global "Your world" map, with pins coloured by visited or planned. |
+| **World stats** (AdventureLog *World travel*) | Countries with flags, places visited, travel days, flights, other rides, hotel nights, favourite kinds of places. |
+| **Itinerary activities** (AdventureLog *Itinerary items*) | Custom activities per day with start/end time, emoji and an "optional" flag. |
+| **Checklists** | A packing list is created automatically for each new trip. You can add more lists (To-do…) and track progress. |
+| **Travel journal** (AdventureLog *Notes*) | Daily entries with mood, text and a photo. |
+| **Journal summary** | Works offline: headline, stats, mood timeline, snapshots, highlights, category breakdown and "words of the trip". **AI story**: Claude turns your entries into a short written recap with highlights and day by day. |
+| **AI travel agent** | A chat that can see your trips and can **act on them**. It can add itinerary items, checklist items and places, and it uses **web search** for visas, opening hours, weather and events. |
+| **Memories / Google Photos** | Add photos with the Android photo picker. On devices where Google Photos is the cloud media app, your Google Photos library shows up in the picker. You can also **share photos from Google Photos straight into a trip** with Share → Wanderlust. |
+
+### About Google Photos
+
+Since March 2025 the Google Photos Library API no longer lets third-party apps read a user's whole library. The only official option left is the Photos *Picker* API, which needs your own Google Cloud OAuth client. Wanderlust uses two routes that need no setup instead:
+1. The Android system photo picker, which includes Google Photos cloud media on supported devices.
+2. The share sheet from Google Photos.
+
+The Memories tab also has an "Open Google Photos" button.
+
+## AI setup (Claude)
+
+The AI features use the official **Anthropic Java SDK** (`com.anthropic:anthropic-java`), called from Kotlin.
+
+1. Get an API key at <https://console.anthropic.com/settings/keys>.
+2. In the app, go to **Home → ⚙️ Settings**, paste the key and choose a model. The default is Claude Opus 5.5; Sonnet 5.5 and Haiku 5.5 are faster and cheaper.
+
+The key is stored only on the device; app backup is turned off. It is sent only to `api.anthropic.com`. Without a key, every other feature still works.
+
+How the agent works (`app/src/main/java/com/wanderlust/app/ai/`):
+- It runs a manual tool-use loop on the Messages API. Client tools (`list_trips`, `get_trip_details`, `add_itinerary_item`, `add_checklist_item`, `add_place`) read and write the on-device Room database. Anthropic's server-side `web_search` tool is enabled.
+- The full conversation, including thinking and tool blocks, is passed back unchanged on each turn. `pause_turn` and `refusal` stop reasons are handled. The server-side refusal fallback (beta) is on for Opus 5.5 and Sonnet 5.5.
+- Tickets are sent as base64 `document` blocks (PDF) or `image` blocks.
+
+## Building
+
+Requirements: JDK 17+, Android SDK with platform 36. Android Studio Ladybug or newer works.
+
+```bash
+./gradlew :app:assembleDebug          # APK at app/build/outputs/apk/debug/app-debug.apk
+./gradlew :app:testDebugUnitTest      # logic tests + Robolectric screenshots in app/build/screenshots/
+```
+
+minSdk 26 (Android 8.0), targetSdk 36.
+
+## Architecture
+
+```
+app/src/main/java/com/wanderlust/app/
+├── data/        Room entities + DAO, repository, file store (attachments/photos), settings, Nominatim geocoder
+├── domain/      ItineraryBuilder (day-by-day timeline), countdowns, JournalSummarizer
+├── ai/          ClaudeService (chat agent, ticket extraction, journal story), AgentTools
+└── ui/
+    ├── home/        animated landing page
+    ├── trips/       trip list, trip detail tabs, boarding-pass / stay cards
+    ├── editors/     trip, transport, lodging, place, activity, journal editors
+    ├── itinerary/   visual itinerary + PDF exporter
+    ├── journal/     journal summary
+    ├── assistant/   AI chat
+    ├── world/       stats + OpenStreetMap
+    ├── importing/   scan ticket, share-to-app import
+    └── settings/
+```
+
+Libraries: Jetpack Compose (Material 3), Navigation Compose, Room, Coil 3, osmdroid, Anthropic Java SDK.
+
+Maps © OpenStreetMap contributors.
