@@ -3,6 +3,20 @@ package com.wanderlust.app.ui.world
 import android.graphics.drawable.ShapeDrawable
 import android.graphics.drawable.shapes.OvalShape
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import com.wanderlust.app.data.Countries
+import com.wanderlust.app.data.VisitedCountry
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -69,8 +83,11 @@ fun WorldScreen(@Suppress("UNUSED_PARAMETER") nav: NavHostController) {
     val transports by app.repo.allTransports.collectAsState(initial = emptyList())
     val lodgings by app.repo.allLodgings.collectAsState(initial = emptyList())
 
+    val manual by app.repo.visitedCountries.collectAsState(initial = emptyList())
+    var addCountries by remember { mutableStateOf(false) }
     val countries = places.filter { it.countryCode.isNotBlank() }.groupBy { it.countryCode }
-    val visitedCountries = countries.filter { (_, ps) -> ps.any { it.visited } }
+    // visited = countries with a visited place, plus countries added by hand for past trips
+    val visitedCodes = countries.filter { (_, ps) -> ps.any { it.visited } }.keys + manual.map { it.countryCode }
     val days = trips.sumOf { tripLengthDays(it.startDate, it.endDate) }
     val nights = lodgings.sumOf { l ->
         val a = l.checkIn?.toLocalDate(); val b = l.checkOut?.toLocalDate()
@@ -78,6 +95,10 @@ fun WorldScreen(@Suppress("UNUSED_PARAMETER") nav: NavHostController) {
     }
     val byType = transports.groupingBy { TransportType.of(it.type) }.eachCount()
 
+    if (addCountries) AddCountriesDialog(manual.map { it.countryCode }.toSet(), onDismiss = { addCountries = false }) { picked, year ->
+        app.appScope.launch { picked.forEach { c -> app.repo.saveCountry(VisitedCountry(countryCode = c.code, name = c.name, year = year)) } }
+        addCountries = false
+    }
     LazyColumn(Modifier.fillMaxSize().background(Night), contentPadding = PaddingValues(bottom = 32.dp)) {
         item {
             Column(Modifier.statusBarsPadding().padding(20.dp)) {
@@ -86,12 +107,12 @@ fun WorldScreen(@Suppress("UNUSED_PARAMETER") nav: NavHostController) {
             }
         }
         item {
-            MapExplorer(places, trips, fixedTripId = null, centerOn = null, modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth(), mapHeight = 340)
+            MapExplorer(places, trips, fixedTripId = null, centerOn = null, modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth(), mapHeight = 340, countries = manual)
         }
         item {
             Spacer(Modifier.height(16.dp))
             Row(Modifier.padding(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                StatTile("${visitedCountries.size}", "Countries", Modifier.weight(1f), Teal)
+                StatTile("${visitedCodes.size}", "Countries", Modifier.weight(1f), Teal)
                 StatTile("${places.count { it.visited }}", "Places visited", Modifier.weight(1f), Coral)
                 StatTile("$days", "Travel days", Modifier.weight(1f), Gold)
             }
@@ -102,17 +123,35 @@ fun WorldScreen(@Suppress("UNUSED_PARAMETER") nav: NavHostController) {
                 StatTile("$nights", "Hotel nights", Modifier.weight(1f), Gold)
             }
         }
-        if (countries.isNotEmpty()) item {
-            SmallLabel("Countries", Modifier.padding(start = 20.dp, top = 24.dp, bottom = 8.dp))
+        item {
+            Row(Modifier.padding(start = 20.dp, end = 12.dp, top = 24.dp), verticalAlignment = Alignment.CenterVertically) {
+                SmallLabel("Countries · ${visitedCodes.size}", Modifier.weight(1f))
+                TextButton(onClick = { addCountries = true }) { Text("＋ Add countries") }
+            }
+            if (countries.isEmpty() && manual.isEmpty()) Text("Been somewhere before using Wanderlust? Add the countries from past trips and they’ll be shaded on your map.",
+                fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 20.dp))
             FlowRow(Modifier.padding(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                countries.forEach { (code, ps) ->
-                    val visited = ps.any { it.visited }
+                val manualByCode = manual.associateBy { it.countryCode }
+                (countries.keys + manualByCode.keys).sortedBy { Countries.name(it) }.forEach { code ->
+                    val ps = countries[code].orEmpty()
+                    val m = manualByCode[code]
+                    val visitedPlaces = ps.count { it.visited }
                     GlassCard {
-                        Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                        Row(Modifier.padding(start = 12.dp, top = 8.dp, bottom = 8.dp, end = if (m != null) 0.dp else 12.dp), verticalAlignment = Alignment.CenterVertically) {
                             Text(flagEmoji(code), fontSize = 20.sp)
                             Column(Modifier.padding(start = 8.dp)) {
-                                Text(ps.first().countryName.ifBlank { code }, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                                Text(if (visited) "${ps.count { it.visited }} visited" else "planned", fontSize = 11.sp, color = if (visited) Teal else MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(ps.firstOrNull()?.countryName?.ifBlank { null } ?: m?.name ?: Countries.name(code), fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                                Text(
+                                    when {
+                                        visitedPlaces > 0 -> "$visitedPlaces visited"
+                                        m != null -> m.year?.let { "Visited $it" } ?: "Visited"
+                                        else -> "planned"
+                                    },
+                                    fontSize = 11.sp, color = if (visitedPlaces > 0 || m != null) Teal else MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            if (m != null) IconButton(onClick = { app.appScope.launch { app.repo.deleteCountry(m) } }, modifier = Modifier.size(36.dp)) {
+                                Icon(Icons.Default.Close, "Remove ${m.name}", modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
                     }
@@ -137,4 +176,42 @@ fun WorldScreen(@Suppress("UNUSED_PARAMETER") nav: NavHostController) {
             }
         }
     }
+}
+
+/** Pick several countries (with an optional year) from past trips. */
+@Composable
+private fun AddCountriesDialog(already: Set<String>, onDismiss: () -> Unit, onSave: (List<Countries.Country>, Int?) -> Unit) {
+    var query by remember { mutableStateOf("") }
+    var year by remember { mutableStateOf("") }
+    val picked = remember { androidx.compose.runtime.mutableStateListOf<String>() }
+    val list = Countries.all.filter { it.code !in already && (query.isBlank() || it.name.contains(query, true) || it.code.equals(query, true)) }
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Add countries you’ve visited") },
+        text = {
+            Column {
+                OutlinedTextField(query, { query = it }, placeholder = { Text("Search countries") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                androidx.compose.foundation.lazy.LazyColumn(Modifier.height(300.dp).padding(top = 8.dp)) {
+                    items(list.size) { i ->
+                        val c = list[i]
+                        val on = c.code in picked
+                        Row(Modifier.fillMaxWidth().clickable { if (on) picked.remove(c.code) else picked.add(c.code) }.padding(vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically) {
+                            androidx.compose.material3.Checkbox(checked = on, onCheckedChange = { if (it) picked.add(c.code) else picked.remove(c.code) })
+                            Text("${c.flag}  ${c.name}")
+                        }
+                    }
+                }
+                OutlinedTextField(year, { year = it.filter(Char::isDigit).take(4) }, label = { Text("Year (optional)") }, singleLine = true,
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number))
+            }
+        },
+        confirmButton = {
+            TextButton(enabled = picked.isNotEmpty(), onClick = {
+                onSave(Countries.all.filter { it.code in picked }, year.toIntOrNull()?.takeIf { it in 1900..2100 })
+            }) { Text(if (picked.isEmpty()) "Add" else "Add ${picked.size}") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }

@@ -54,7 +54,11 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.wanderlust.app.LocalApp
 import com.wanderlust.app.data.Geocoder
+import com.wanderlust.app.data.Countries
 import com.wanderlust.app.data.Place
+import com.wanderlust.app.data.VisitedCountry
+import com.wanderlust.app.ui.theme.Violet
+import org.osmdroid.views.overlay.Polygon
 import com.wanderlust.app.data.PlaceCategory
 import com.wanderlust.app.data.TravelRepository
 import com.wanderlust.app.data.Trip
@@ -83,7 +87,7 @@ private val quickCategories = listOf(PlaceCategory.ATTRACTION, PlaceCategory.DIN
  * @param centerOn place name to centre on when there are no pins yet (e.g. the trip destination)
  */
 @Composable
-fun MapExplorer(places: List<Place>, trips: List<Trip>, fixedTripId: Long?, centerOn: String?, modifier: Modifier = Modifier, mapHeight: Int = 380) {
+fun MapExplorer(places: List<Place>, trips: List<Trip>, fixedTripId: Long?, centerOn: String?, modifier: Modifier = Modifier, mapHeight: Int = 380, countries: List<VisitedCountry> = emptyList()) {
     val app = LocalApp.current
     val context = LocalContext.current
     val focus = LocalFocusManager.current
@@ -100,6 +104,9 @@ fun MapExplorer(places: List<Place>, trips: List<Trip>, fixedTripId: Long?, cent
             ?: activeTrips.firstOrNull { TravelRepository.tripStatus(it) == TripStatus.UPCOMING } ?: activeTrips.firstOrNull())?.id ?: 0L)
     }
     var tripMenu by remember { mutableStateOf(false) }
+    var tappedPlace by remember { mutableStateOf<Place?>(null) }
+    var tappedCountry by remember { mutableStateOf<VisitedCountry?>(null) }
+    var confirmRemove by remember { mutableStateOf(false) }
 
     // bias searches towards the trip's destination when there is one
     fun search() {
@@ -144,7 +151,64 @@ fun MapExplorer(places: List<Place>, trips: List<Trip>, fixedTripId: Long?, cent
             }
         }
 
-        OsmMap(places, selected, centerOn, Modifier.fillMaxWidth().height(mapHeight.dp).clip(RoundedCornerShape(24.dp)))
+        OsmMap(places, selected, centerOn, Modifier.fillMaxWidth().height(mapHeight.dp).clip(RoundedCornerShape(24.dp)), countries,
+            onPlaceTap = { p -> tappedPlace = places.firstOrNull { it.id == p.id }; tappedCountry = null; selected = null },
+            onCountryTap = { c -> tappedCountry = c; tappedPlace = null; selected = null })
+        Text(if (countries.isNotEmpty()) "Tap a pin or a shaded country to see details or remove it" else "Tap a pin to see details or remove it",
+            fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+        // keep the card in sync with the latest data (e.g. after toggling visited)
+        tappedPlace?.let { tp -> places.firstOrNull { it.id == tp.id } ?: run { tappedPlace = null; null } }?.let { p ->
+            val trip = trips.firstOrNull { it.id == p.tripId }
+            GlassCard(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("${PlaceCategory.of(p.category).emoji}  ${p.name}", fontWeight = FontWeight.Bold, fontSize = 17.sp, modifier = Modifier.weight(1f))
+                        IconButton(onClick = { tappedPlace = null }) { Icon(Icons.Default.Close, "Close") }
+                    }
+                    Text(listOfNotNull(
+                        p.countryCode.takeIf { it.isNotBlank() }?.let { flagEmoji(it) },
+                        listOf(p.city, p.countryName).filter { it.isNotBlank() }.joinToString(", ").takeIf { it.isNotBlank() },
+                        trip?.takeIf { fixedTripId == null }?.let { "Trip: ${it.destination.ifBlank { it.name }}" },
+                    ).joinToString("  ·  "), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Visited", Modifier.weight(1f))
+                        androidx.compose.material3.Switch(checked = p.visited, onCheckedChange = { v -> app.appScope.launch { app.repo.savePlace(p.copy(visited = v)) } })
+                    }
+                    OutlinedButton(onClick = { confirmRemove = true }) { Text("🗑  Remove from map") }
+                }
+            }
+        }
+        tappedCountry?.let { c ->
+            GlassCard(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("${flagEmoji(c.countryCode)}  ${c.name}", fontWeight = FontWeight.Bold, fontSize = 17.sp, modifier = Modifier.weight(1f))
+                        IconButton(onClick = { tappedCountry = null }) { Icon(Icons.Default.Close, "Close") }
+                    }
+                    Text(c.year?.let { "Visited in $it" } ?: "Visited", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (c.notes.isNotBlank()) Text(c.notes, fontSize = 13.sp)
+                    OutlinedButton(onClick = { confirmRemove = true }) { Text("🗑  Remove country") }
+                }
+            }
+        }
+        if (confirmRemove) {
+            val what = tappedPlace?.name ?: tappedCountry?.name ?: ""
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { confirmRemove = false },
+                title = { Text("Remove $what?") },
+                text = { Text(if (tappedPlace != null) "This deletes the place from its trip." else "It will no longer be shaded on your map or counted in your stats.") },
+                confirmButton = {
+                    androidx.compose.material3.TextButton(onClick = {
+                        tappedPlace?.let { p -> app.appScope.launch { app.repo.deletePlace(p) } }
+                        tappedCountry?.let { c -> app.appScope.launch { app.repo.deleteCountry(c) } }
+                        Toast.makeText(context, "Removed $what", Toast.LENGTH_SHORT).show()
+                        tappedPlace = null; tappedCountry = null; confirmRemove = false
+                    }) { Text("Remove") }
+                },
+                dismissButton = { androidx.compose.material3.TextButton(onClick = { confirmRemove = false }) { Text("Cancel") } },
+            )
+        }
 
         selected?.let { r ->
             GlassCard(Modifier.fillMaxWidth()) {
@@ -185,7 +249,15 @@ fun MapExplorer(places: List<Place>, trips: List<Trip>, fixedTripId: Long?, cent
 /** The osmdroid map itself, inside Compose. */
 @SuppressLint("ClickableViewAccessibility")
 @Composable
-fun OsmMap(places: List<Place>, selected: Geocoder.Result?, centerOn: String?, modifier: Modifier) {
+fun OsmMap(
+    places: List<Place>,
+    selected: Geocoder.Result?,
+    centerOn: String?,
+    modifier: Modifier,
+    countries: List<VisitedCountry> = emptyList(),
+    onPlaceTap: (Place) -> Unit = {},
+    onCountryTap: (VisitedCountry) -> Unit = {},
+) {
     val context = LocalContext.current
     val map = remember {
         MapView(context).apply {
@@ -203,6 +275,16 @@ fun OsmMap(places: List<Place>, selected: Geocoder.Result?, centerOn: String?, m
         onDispose { map.onPause(); map.onDetach() }
     }
     val mapped = places.filter { it.latitude != null && it.longitude != null }
+    val shapes = remember { Countries.shapes(context) }
+    // tiny countries missing from the simplified outlines get a pin instead
+    val fallback = remember { androidx.compose.runtime.mutableStateMapOf<String, GeoPoint>() }
+    LaunchedEffect(countries.map { it.countryCode }) {
+        countries.filter { it.countryCode !in shapes && it.countryCode !in fallback }.forEach { c ->
+            runCatching { Geocoder.search(c.name).firstOrNull() }.getOrNull()?.let { fallback[c.countryCode] = GeoPoint(it.lat, it.lon) }
+        }
+    }
+    val tapPlace by androidx.compose.runtime.rememberUpdatedState(onPlaceTap)
+    val tapCountry by androidx.compose.runtime.rememberUpdatedState(onCountryTap)
 
     // first view: fit all pins, otherwise centre on the destination
     var framed by remember { mutableStateOf(false) }
@@ -226,6 +308,26 @@ fun OsmMap(places: List<Place>, selected: Geocoder.Result?, centerOn: String?, m
     AndroidView({ map }, modifier) { mv ->
         mv.overlays.clear()
         fun dot(color: Int, size: Int) = ShapeDrawable(OvalShape()).apply { intrinsicWidth = size; intrinsicHeight = size; paint.color = color }
+        // visited countries first, so pins draw on top
+        countries.forEach { c ->
+            val shape = shapes[c.countryCode]
+            if (shape != null) shape.rings.forEach { ring ->
+                mv.overlays.add(Polygon(mv).apply {
+                    points = ring.map { (lat, lon) -> GeoPoint(lat, lon) }
+                    fillPaint.color = Violet.copy(alpha = 0.38f).toArgb()
+                    outlinePaint.color = Violet.toArgb()
+                    outlinePaint.strokeWidth = 2.5f
+                    title = c.name
+                    setOnClickListener { _, _, _ -> tapCountry(c); true }
+                })
+            } else fallback[c.countryCode]?.let { gp ->
+                mv.overlays.add(Marker(mv).apply {
+                    position = gp; title = c.name; icon = dot(Violet.toArgb(), 40)
+                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+                    setOnMarkerClickListener { _, _ -> tapCountry(c); true }
+                })
+            }
+        }
         mapped.forEach { p ->
             mv.overlays.add(Marker(mv).apply {
                 position = GeoPoint(p.latitude!!, p.longitude!!)
@@ -233,6 +335,7 @@ fun OsmMap(places: List<Place>, selected: Geocoder.Result?, centerOn: String?, m
                 snippet = listOf(p.city, p.countryName).filter { it.isNotBlank() }.joinToString(", ")
                 icon = dot((if (p.visited) Teal else Coral).toArgb(), 44)
                 setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+                setOnMarkerClickListener { _, _ -> tapPlace(p); true }
             })
         }
         selected?.let { r ->
