@@ -45,6 +45,8 @@ object AgentTools {
         Tool.builder()
             .name(name)
             .description(description)
+            // answers are streamed; stream tool inputs too (they are parsed defensively in ClaudeService)
+            .eagerInputStreaming(true)
             .inputSchema(
                 Tool.InputSchema.builder()
                     .properties(Tool.InputSchema.Properties.builder().apply {

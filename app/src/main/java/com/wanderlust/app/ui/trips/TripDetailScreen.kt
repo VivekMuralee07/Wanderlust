@@ -113,7 +113,7 @@ import java.io.File
 
 private enum class TripTab(val label: String) {
     OVERVIEW("Overview"), BOOKINGS("Bookings"), PLAN("Itinerary"), PLACES("Places"),
-    CHECKLIST("Checklist"), JOURNAL("Journal"), MEMORIES("Memories"), MAP("Map")
+    CHECKLIST("Checklist"), EXPENSES("Expenses"), JOURNAL("Journal"), MEMORIES("Memories"), MAP("Map")
 }
 
 @Composable
@@ -133,6 +133,7 @@ fun TripDetailScreen(nav: NavHostController, tripId: Long) {
 
     val f = full ?: return
     val p = palette(f.trip.themeIndex)
+    val weather by com.wanderlust.app.weather.rememberTripWeather(f)
 
     Scaffold(
         containerColor = Night,
@@ -144,6 +145,7 @@ fun TripDetailScreen(nav: NavHostController, tripId: Long) {
                         TripTab.PLAN -> nav.navigate(Routes.activity(tripId))
                         TripTab.PLACES -> nav.navigate(Routes.place(tripId))
                         TripTab.CHECKLIST -> Unit
+                        TripTab.EXPENSES -> nav.navigate(Routes.expense(tripId))
                         TripTab.JOURNAL -> nav.navigate(Routes.journal(tripId))
                         TripTab.MEMORIES -> pickMemories.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                         else -> Unit
@@ -166,7 +168,7 @@ fun TripDetailScreen(nav: NavHostController, tripId: Long) {
                 Spacer(Modifier.height(12.dp))
             }
             when (tab) {
-                TripTab.OVERVIEW -> overview(f, nav, onExport = {
+                TripTab.OVERVIEW -> overview(f, nav, weather, onExport = {
                     scope.launch {
                         runCatching { ItineraryPdf.export(context, f) }
                             .onSuccess { file -> app.files.share(context, file, "application/pdf", "${f.trip.name} itinerary") }
@@ -174,9 +176,10 @@ fun TripDetailScreen(nav: NavHostController, tripId: Long) {
                     }
                 }, onArchive = { app.appScope.launch { app.repo.saveTrip(f.trip.copy(isArchived = !f.trip.isArchived)) } })
                 TripTab.BOOKINGS -> bookings(f, nav)
-                TripTab.PLAN -> plan(f, nav)
+                TripTab.PLAN -> plan(f, nav, weather)
                 TripTab.PLACES -> places(f, nav, onToggle = { pl -> app.appScope.launch { app.repo.savePlace(pl.copy(visited = !pl.visited)) } })
                 TripTab.CHECKLIST -> item { Checklist(f) }
+                TripTab.EXPENSES -> item { com.wanderlust.app.expenses.ExpensesTab(f, nav) }
                 TripTab.JOURNAL -> journal(f, nav)
                 TripTab.MEMORIES -> item {
                     Memories(f, onAdd = { pickMemories.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
@@ -215,7 +218,7 @@ private fun Header(f: TripFull, onBack: () -> Unit, onEdit: () -> Unit) {
     }
 }
 
-private fun LazyListScope.overview(f: TripFull, nav: NavHostController, onExport: () -> Unit, onArchive: () -> Unit) {
+private fun LazyListScope.overview(f: TripFull, nav: NavHostController, weather: Map<java.time.LocalDate, com.wanderlust.app.weather.DayWeather>, onExport: () -> Unit, onArchive: () -> Unit) {
     val t = f.trip
     val status = TravelRepository.tripStatus(t)
     val target = Countdowns.target(t, f.transports)
@@ -229,6 +232,7 @@ private fun LazyListScope.overview(f: TripFull, nav: NavHostController, onExport
         }
         Spacer(Modifier.height(14.dp))
     }
+    if (weather.isNotEmpty()) item { WeatherStrip(weather) }
     item {
         Row(Modifier.padding(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             FeatureCard("🗺️", "Visual itinerary", "Your days, beautifully laid out", listOf(Violet, Coral), Modifier.weight(1f)) { nav.navigate(Routes.itinerary(t.id)) }
@@ -264,6 +268,9 @@ private fun LazyListScope.overview(f: TripFull, nav: NavHostController, onExport
         }
     }
     item {
+        var calendar by remember { mutableStateOf(false) }
+        OutlinedButton(onClick = { calendar = true }, modifier = Modifier.padding(start = 20.dp, top = 12.dp)) { Text("📅  Add to calendar") }
+        if (calendar) com.wanderlust.app.calendar.CalendarDialog(f) { calendar = false }
         Row(Modifier.padding(20.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             OutlinedButton(onClick = onExport) { Icon(Icons.Default.PictureAsPdf, null); Spacer(Modifier.width(6.dp)); Text("Export PDF") }
             OutlinedButton(onClick = onArchive) { Icon(Icons.Default.Archive, null); Spacer(Modifier.width(6.dp)); Text(if (t.isArchived) "Unarchive" else "Archive") }
@@ -305,7 +312,7 @@ private fun LazyListScope.bookings(f: TripFull, nav: NavHostController) {
     }
 }
 
-private fun LazyListScope.plan(f: TripFull, nav: NavHostController) {
+private fun LazyListScope.plan(f: TripFull, nav: NavHostController, weather: Map<java.time.LocalDate, com.wanderlust.app.weather.DayWeather>) {
     val it = ItineraryBuilder.build(f)
     item {
         Row(Modifier.padding(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -320,7 +327,8 @@ private fun LazyListScope.plan(f: TripFull, nav: NavHostController) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(if (d.index >= 1) "Day ${d.index}" else "Travel day", fontFamily = Display, fontWeight = FontWeight.Bold, fontSize = 20.sp, color = MaterialTheme.colorScheme.secondary)
                     Spacer(Modifier.width(10.dp))
-                    Text(d.date.format(dayFmt), color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                    Text(d.date.format(dayFmt), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(weather[d.date]?.let { "   ${it.emoji} ${it.temps()}" } ?: "", fontSize = 13.sp, modifier = Modifier.weight(1f))
                     TextButton(onClick = { nav.navigate(Routes.activity(f.trip.id, 0, d.date.toString())) }) { Text("+ Add") }
                 }
                 if (d.events.isEmpty()) Text("Free day — add an activity or ask the AI for ideas", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -501,5 +509,29 @@ private fun TripDocuments(docs: List<com.wanderlust.app.data.Attachment>) {
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun WeatherStrip(weather: Map<java.time.LocalDate, com.wanderlust.app.weather.DayWeather>) {
+    val days = weather.values.sortedBy { it.date }
+    val typical = days.all { it.typical }
+    Column(Modifier.padding(bottom = 14.dp)) {
+        SmallLabel(if (typical) "Typical weather for your dates (last year)" else "Weather forecast", Modifier.padding(start = 20.dp, bottom = 6.dp))
+        androidx.compose.foundation.lazy.LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(days.size) { i ->
+                val w = days[i]
+                GlassCard(corner = 18.dp) {
+                    Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(w.date.format(java.time.format.DateTimeFormatter.ofPattern("EEE d")), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(w.emoji, fontSize = 26.sp)
+                        Text(w.temps(), fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                        w.rainChance?.takeIf { it >= 30 }?.let { Text("💧$it%", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                        if (w.typical && !typical) Text("typical", fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+        }
+        Text("Weather data by Open-Meteo.com", fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 20.dp, top = 4.dp))
     }
 }

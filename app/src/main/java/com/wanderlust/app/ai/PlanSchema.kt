@@ -85,6 +85,24 @@ object PlanSchema {
         root.forEach { (k, v) -> putAdditionalProperty(k, JsonValue.from(v)) }
     }.build()
 
+    val receiptSchema: JsonOutputFormat.Schema = JsonOutputFormat.Schema.builder().apply {
+        obj(mapOf(
+            "merchant" to str("Shop / restaurant name"),
+            "total" to mapOf("type" to "number", "description" to "Total paid"),
+            "currency" to str("ISO 4217 code, e.g. TWD"),
+            "date" to str("yyyy-MM-dd or empty"),
+            "category" to enumOf(com.wanderlust.app.data.ExpenseCategory.entries.map { it.name }),
+            "notes" to str("Very short: what was bought"),
+        )).forEach { (k, v) -> putAdditionalProperty(k, JsonValue.from(v)) }
+    }.build()
+
+    fun parseReceipt(raw: String): ReceiptDraft {
+        val o = runCatching { JSONObject(raw.substring(raw.indexOf('{'), raw.lastIndexOf('}') + 1)) }
+            .getOrElse { throw AiException("Couldn't read that receipt.") }
+        return ReceiptDraft(o.s("merchant"), o.optDouble("total", 0.0).takeIf { !it.isNaN() } ?: 0.0, o.s("currency").uppercase(),
+            date(o.s("date")), com.wanderlust.app.data.ExpenseCategory.of(o.s("category")).name, o.s("notes"))
+    }
+
     private fun JSONObject.s(k: String) = optString(k, "").takeIf { it != "null" }?.trim() ?: ""
     private fun date(v: String) = runCatching { LocalDate.parse(v.take(10)) }.getOrNull()
     private fun time(v: String) = runCatching { LocalTime.parse(v.take(5)) }.getOrNull()

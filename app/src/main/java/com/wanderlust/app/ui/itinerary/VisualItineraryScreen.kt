@@ -89,6 +89,7 @@ fun VisualItineraryScreen(nav: NavHostController, tripId: Long) {
     var themeIndex by remember(f.trip.id) { mutableIntStateOf(f.trip.themeIndex) }
     val p = TripPalettes[themeIndex % TripPalettes.size]
     val itinerary = remember(f) { ItineraryBuilder.build(f) }
+    val weather by com.wanderlust.app.weather.rememberTripWeather(f)
 
     Box(Modifier.fillMaxSize().background(Night)) {
         // themed backdrop
@@ -143,7 +144,7 @@ fun VisualItineraryScreen(nav: NavHostController, tripId: Long) {
             if (itinerary.days.isEmpty() && itinerary.unscheduled.isEmpty()) item {
                 EmptyState("🧭", "Your itinerary is empty", "Add trip dates, flights, hotels and places — they’ll appear here on a beautiful timeline.")
             }
-            itemsIndexed(itinerary.days, key = { _, d -> d.date.toString() }) { i, d -> DayBlock(d, p, i) }
+            itemsIndexed(itinerary.days, key = { _, d -> d.date.toString() }) { i, d -> DayBlock(d, p, i, weather[d.date]) }
             if (itinerary.unscheduled.isNotEmpty()) item {
                 DayHeader("✦", "Anytime", "Ideas without a date yet", p)
                 itinerary.unscheduled.forEach { EventRow(it, p, isLast = it == itinerary.unscheduled.last()) }
@@ -153,12 +154,16 @@ fun VisualItineraryScreen(nav: NavHostController, tripId: Long) {
 }
 
 @Composable
-private fun DayBlock(d: ItineraryDay, p: TripPalette, index: Int) {
+private fun DayBlock(d: ItineraryDay, p: TripPalette, index: Int, w: com.wanderlust.app.weather.DayWeather? = null) {
     // gentle staggered entrance
     val anim = remember { Animatable(0f) }
     LaunchedEffect(Unit) { anim.animateTo(1f, tween(450, delayMillis = (index * 60).coerceAtMost(400))) }
     Column(Modifier.graphicsLayer { alpha = anim.value; translationY = (1 - anim.value) * 60f }) {
-        DayHeader(if (d.index >= 1) "${d.index}" else "✈", d.date.format(longDayFmt), d.sleepingAt?.let { "🌙 $it" } ?: if (d.index < 1) "Travel day" else "", p)
+        val sub = listOfNotNull(
+            w?.let { "${it.emoji} ${it.temps()}" + if (it.typical) " typical" else "" },
+            d.sleepingAt?.let { "🌙 $it" } ?: if (d.index < 1) "Travel day" else null,
+        ).joinToString("  ·  ")
+        DayHeader(if (d.index >= 1) "${d.index}" else "✈", d.date.format(longDayFmt), sub, p)
         if (d.events.isEmpty()) {
             EventRow(TimelineEvent(EventKind.ACTIVITY, null, null, "🌿", "Free day", "Wander, rest, get lost on purpose"), p, isLast = true, muted = true)
         } else d.events.forEachIndexed { i, e -> EventRow(e, p, isLast = i == d.events.lastIndex) }

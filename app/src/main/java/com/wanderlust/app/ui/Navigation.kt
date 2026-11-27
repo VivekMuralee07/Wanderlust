@@ -65,6 +65,7 @@ object Routes {
     fun activity(tripId: Long, id: Long = 0, date: String = "") = "activity/$tripId/$id?date=$date"
     fun journal(tripId: Long, id: Long = 0) = "journal/$tripId/$id"
     fun itinerary(tripId: Long) = "itinerary/$tripId"
+    fun expense(tripId: Long, id: Long = 0) = "expense/$tripId/$id"
     fun summary(tripId: Long) = "summary/$tripId"
     fun scan(tripId: Long = 0, mode: String = "bookings") = "$SCAN?tripId=$tripId&mode=$mode"
 }
@@ -79,7 +80,7 @@ private val tabs = listOf(
 )
 
 @Composable
-fun WanderlustNavHost(shared: SharedPayload?, onSharedConsumed: () -> Unit) {
+fun WanderlustNavHost(shared: SharedPayload?, onSharedConsumed: () -> Unit, openTrip: Long? = null, onTripOpened: () -> Unit = {}) {
     val nav = rememberNavController()
     val entry by nav.currentBackStackEntryAsState()
     val current = entry?.destination?.route
@@ -87,6 +88,9 @@ fun WanderlustNavHost(shared: SharedPayload?, onSharedConsumed: () -> Unit) {
 
     LaunchedEffect(shared) {
         if (shared != null) nav.navigate(Routes.SHARE)
+    }
+    LaunchedEffect(openTrip) {
+        if (openTrip != null) { nav.navigate(Routes.trip(openTrip)); onTripOpened() }
     }
 
     Scaffold(
@@ -136,6 +140,7 @@ fun WanderlustNavHost(shared: SharedPayload?, onSharedConsumed: () -> Unit) {
                 editor("lodging", nav) { n, t, i -> LodgingEditor(n, t, i) }
                 editor("place", nav) { n, t, i -> PlaceEditor(n, t, i) }
                 editor("journal", nav) { n, t, i -> JournalEditor(n, t, i) }
+                editor("expense", nav) { n, t, i -> com.wanderlust.app.expenses.ExpenseEditor(n, t, i) }
                 composable(
                     "activity/{tripId}/{id}?date={date}",
                     arguments = listOf(

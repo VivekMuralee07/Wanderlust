@@ -7,6 +7,7 @@ import com.anthropic.core.JsonValue
 import com.anthropic.errors.AnthropicServiceException
 import com.anthropic.errors.RateLimitException
 import com.anthropic.errors.UnauthorizedException
+import com.anthropic.helpers.MessageAccumulator
 import com.anthropic.models.messages.Base64ImageSource
 import com.anthropic.models.messages.Base64PdfSource
 import com.anthropic.models.messages.ContentBlockParam
@@ -79,6 +80,8 @@ data class PlanDraft(
     val count get() = transports.size + lodgings.size + places.size + activities.size
 }
 
+data class ReceiptDraft(val merchant: String, val total: Double, val currency: String, val date: LocalDate?, val category: String, val notes: String)
+
 /** A file to analyse. */
 data class SourceFile(val path: String, val mimeType: String, val name: String)
 
@@ -137,7 +140,7 @@ class ClaudeService(private val settings: SettingsStore, private val repo: Trave
      * One user turn of the travel agent. [history] is the full conversation (including tool calls and
      * thinking blocks, passed back unchanged) and is appended to in place.
      */
-    suspend fun chat(history: MutableList<MessageParam>, userText: String, onStatus: (String) -> Unit): String =
+    suspend fun chat(history: MutableList<MessageParam>, userText: String, onStatus: (String) -> Unit, onText: (String) -> Unit = {}): String =
         withContext(Dispatchers.IO) {
             val s = settings.state.value
             val client = client(s)
@@ -158,7 +161,16 @@ class ClaudeService(private val settings: SettingsStore, private val repo: Trave
                         .withFallbacks(s.model)
                         .build()
 
-                    val response = client.messages().create(params)
+                    // stream so the answer appears while it is being written
+                    val acc = MessageAccumulator.create()
+                    val sb = StringBuilder()
+                    client.messages().createStreaming(params).use { stream ->
+                        stream.stream().forEach { event ->
+                            acc.accumulate(event)
+                            event.contentBlockDelta().flatMap { it.delta().text() }.ifPresent { d -> sb.append(d.text()); onText(sb.toString()) }
+                        }
+                    }
+                    val response = acc.message()
                     history += response.toParam()
                     response.checkRefusal()
                     val text = response.text()
@@ -170,9 +182,10 @@ class ClaudeService(private val settings: SettingsStore, private val repo: Trave
                                 onStatus(AgentTools.statusFor(call.name()))
                                 val input = runCatching {
                                     JSONObject(call._input().convert(Map::class.java) as Map<*, *>)
-                                }.getOrElse { JSONObject() }
+                                }.getOrNull()
                                 val (output, isError) = try {
-                                    AgentTools.execute(repo, call.name(), input) to false
+                                    if (input == null) "INVALID_JSON: the tool input was not valid JSON. Call the tool again with complete arguments." to true
+                                    else AgentTools.execute(repo, call.name(), input) to false
                                 } catch (e: Exception) {
                                     "Error: ${e.message}" to true
                                 }
@@ -273,6 +286,33 @@ class ClaudeService(private val settings: SettingsStore, private val repo: Trave
                 PlanSchema.parse(response.text(), files.size)
             }
         }
+
+    /** Reads a receipt photo/PDF: merchant, total, currency, date and category. */
+    suspend fun extractReceipt(file: SourceFile): ReceiptDraft = withContext(Dispatchers.IO) {
+        val s = settings.state.value
+        val client = client(s)
+        val block = if (file.mimeType == "application/pdf") ContentBlockParam.ofDocument(
+            DocumentBlockParam.builder().source(Base64PdfSource.builder().data(Base64.encodeToString(java.io.File(file.path).readBytes(), Base64.NO_WRAP)).build()).build()
+        ) else ContentBlockParam.ofImage(
+            ImageBlockParam.builder().source(
+                Base64ImageSource.builder().data(Base64.encodeToString(ImageShrinker.toJpeg(file.path) ?: throw AiException("Couldn't read that image"), Base64.NO_WRAP))
+                    .mediaType(Base64ImageSource.MediaType.IMAGE_JPEG).build()
+            ).build()
+        )
+        friendly {
+            val params = MessageCreateParams.builder()
+                .model(s.model)
+                .maxTokens(2000L)
+                .system("You read receipts and bills. Extract the final total actually paid (after tax/tip), its ISO-4217 currency code (infer from symbols, language and address if not printed), the merchant, the date, and the best category. Use \"\" or 0 when unknown; never guess amounts.")
+                .outputConfig(OutputConfig.builder().effort(OutputConfig.Effort.LOW).format(JsonOutputFormat.builder().schema(PlanSchema.receiptSchema).build()).build())
+                .addUserMessageOfContentBlockParams(listOf(block, ContentBlockParam.ofText(TextBlockParam.builder().text("Today is ${LocalDate.now()}.").build())))
+                .withFallbacks(s.model)
+                .build()
+            val response = client.messages().create(params)
+            response.checkRefusal()
+            PlanSchema.parseReceipt(response.text())
+        }
+    }
 
     // ------------------------------------------------------------------------------------------
     // Journal story

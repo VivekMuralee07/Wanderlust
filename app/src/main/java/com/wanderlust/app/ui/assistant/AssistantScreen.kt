@@ -53,6 +53,7 @@ import com.anthropic.models.messages.MessageParam
 import com.wanderlust.app.AppContainer
 import com.wanderlust.app.LocalApp
 import com.wanderlust.app.ai.AiException
+import com.wanderlust.app.data.ChatMessageEntity
 import com.wanderlust.app.ui.components.EmptyState
 import com.wanderlust.app.ui.components.MarkdownText
 import com.wanderlust.app.ui.theme.Coral
@@ -69,24 +70,51 @@ class AssistantViewModel : ViewModel() {
     private val history = mutableListOf<MessageParam>()
     var busy by mutableStateOf(false); private set
     var status by mutableStateOf(""); private set
+    /** Text of the answer while it is being streamed. */
+    var streaming by mutableStateOf(""); private set
+    private var loaded = false
+
+    /** Restores the saved conversation (plain text; tool calls from earlier sessions aren't replayed). */
+    fun load(app: AppContainer) {
+        if (loaded) return
+        loaded = true
+        viewModelScope.launch {
+            val saved = app.repo.chatMessages()
+            messages.clear()
+            messages += saved.map { ChatMessage(it.fromUser, it.text, it.isError) }
+            history.clear()
+            // last 30 turns, alternating user/assistant, errors skipped
+            saved.filter { !it.isError }.takeLast(30).forEach { m ->
+                history += if (m.fromUser) MessageParam.ofUser(m.text) else MessageParam.ofAssistant(m.text)
+            }
+            while (history.isNotEmpty() && history.first().isAssistant()) history.removeAt(0)
+        }
+    }
 
     fun send(app: AppContainer, text: String) {
         if (text.isBlank() || busy) return
         messages += ChatMessage(true, text)
-        busy = true; status = "Thinking…"
+        busy = true; status = "Thinking…"; streaming = ""
         val snapshot = history.toMutableList()
         viewModelScope.launch {
+            app.repo.addChat(ChatMessageEntity(fromUser = true, text = text))
             try {
-                val reply = app.ai.chat(snapshot, text) { s -> status = s }
+                val reply = app.ai.chat(snapshot, text, onStatus = { s -> status = s; streaming = "" }, onText = { t -> streaming = t })
                 history.clear(); history.addAll(snapshot)
                 messages += ChatMessage(false, reply)
+                app.repo.addChat(ChatMessageEntity(fromUser = false, text = reply))
             } catch (e: AiException) {
-                messages += ChatMessage(false, e.message ?: "Something went wrong", isError = true)
-            } finally { busy = false }
+                val msg = e.message ?: "Something went wrong"
+                messages += ChatMessage(false, msg, isError = true)
+                app.repo.addChat(ChatMessageEntity(fromUser = false, text = msg, isError = true))
+            } finally { busy = false; streaming = "" }
         }
     }
 
-    fun clear() { messages.clear(); history.clear() }
+    fun clear(app: AppContainer) {
+        messages.clear(); history.clear()
+        viewModelScope.launch { app.repo.clearChat() }
+    }
 }
 
 private val suggestions = listOf(
@@ -104,7 +132,8 @@ fun AssistantScreen(vm: AssistantViewModel = viewModel()) {
     val settings by app.settings.state.collectAsState()
     var input by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("") }
     val list = rememberLazyListState()
-    LaunchedEffect(vm.messages.size, vm.busy) { if (vm.messages.isNotEmpty()) list.animateScrollToItem(vm.messages.size) }
+    LaunchedEffect(Unit) { vm.load(app) }
+    LaunchedEffect(vm.messages.size, vm.busy, vm.streaming.length / 200) { if (vm.messages.isNotEmpty()) list.animateScrollToItem(list.layoutInfo.totalItemsCount.coerceAtLeast(1) - 1) }
 
     Column(Modifier.fillMaxSize().background(Night).imePadding()) {
         Row(Modifier.statusBarsPadding().padding(start = 20.dp, end = 8.dp, top = 12.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -113,7 +142,7 @@ fun AssistantScreen(vm: AssistantViewModel = viewModel()) {
                 Text("Travel assistant", fontFamily = Display, fontWeight = FontWeight.Bold, fontSize = 22.sp)
                 Text("Knows your trips · searches the web · can plan for you", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            if (vm.messages.isNotEmpty()) IconButton(onClick = { vm.clear() }) { Icon(Icons.Default.DeleteSweep, "Clear chat") }
+            if (vm.messages.isNotEmpty()) IconButton(onClick = { vm.clear(app) }) { Icon(Icons.Default.DeleteSweep, "New chat") }
         }
         LazyColumn(Modifier.weight(1f), state = list, contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             if (vm.messages.isEmpty()) {
@@ -127,6 +156,7 @@ fun AssistantScreen(vm: AssistantViewModel = viewModel()) {
                 }
             }
             items(vm.messages) { m -> Bubble(m) }
+            if (vm.busy && vm.streaming.isNotBlank()) item { Bubble(ChatMessage(false, vm.streaming)) }
             if (vm.busy) item {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)

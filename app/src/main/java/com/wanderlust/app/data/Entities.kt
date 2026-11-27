@@ -33,6 +33,8 @@ data class Trip(
     val themeIndex: Int = 0,
     val isArchived: Boolean = false,
     val createdAt: Long = System.currentTimeMillis(),
+    /** Trip budget in the home currency (v2). */
+    val budget: Double? = null,
 )
 
 enum class TransportType(val label: String, val emoji: String) {
@@ -216,6 +218,46 @@ data class Memory(
     val addedAt: Long = System.currentTimeMillis(),
 )
 
+enum class ExpenseCategory(val label: String, val emoji: String) {
+    FOOD("Food & drink", "🍜"), TRANSPORT("Transport", "🚕"), LODGING("Lodging", "🏨"), ACTIVITIES("Activities", "🎟️"),
+    SHOPPING("Shopping", "🛍️"), FLIGHTS("Flights", "✈️"), FEES("Fees & visas", "🧾"), OTHER("Other", "💸");
+
+    companion object {
+        fun of(value: String?) = entries.firstOrNull { it.name.equals(value, true) } ?: OTHER
+    }
+}
+
+/** A trip expense (v2). [amountHome] is [amount] converted to the home currency at the time it was saved. */
+@Entity(
+    tableName = "expenses",
+    foreignKeys = [ForeignKey(entity = Trip::class, parentColumns = ["id"], childColumns = ["tripId"], onDelete = ForeignKey.CASCADE)],
+    indices = [Index("tripId")],
+)
+data class Expense(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val tripId: Long,
+    val title: String,
+    val amount: Double,
+    val currency: String,
+    val amountHome: Double,
+    val homeCurrency: String,
+    val category: String = ExpenseCategory.OTHER.name,
+    val date: LocalDate,
+    val notes: String = "",
+    val receiptPath: String? = null,
+    val createdAt: Long = System.currentTimeMillis(),
+)
+
+/** Assistant chat history shown in the app (v2). */
+@Entity(tableName = "chat_messages")
+data class ChatMessageEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val fromUser: Boolean,
+    val text: String,
+    val isError: Boolean = false,
+    val createdAt: Long = System.currentTimeMillis(),
+)
+
 /** Everything belonging to one trip, assembled by the repository. */
 data class TripFull(
     val trip: Trip,
@@ -227,4 +269,5 @@ data class TripFull(
     val journal: List<JournalEntry> = emptyList(),
     val attachments: List<Attachment> = emptyList(),
     val memories: List<Memory> = emptyList(),
+    val expenses: List<Expense> = emptyList(),
 )

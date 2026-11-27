@@ -78,6 +78,13 @@ class ScreenshotTest {
         repo.saveItinerary(ItineraryItem(tripId = kyoto, date = start.plusDays(1), time = LocalTime.of(19, 0), title = "Kaiseki dinner in Gion", emoji = "🍽️"))
         repo.saveItinerary(ItineraryItem(tripId = kyoto, date = start.plusDays(2), time = LocalTime.of(14, 0), title = "Kimono walk, Higashiyama", emoji = "📸"))
         repo.seedPackingList(kyoto)
+        app.settings.update { it.copy(homeCurrency = "INR") }
+        repo.saveTrip(repo.trip(kyoto)!!.copy(budget = 150000.0))
+        listOf(Triple("Kaiseki dinner", 18000.0, "FOOD"), Triple("JR Pass", 50000.0, "TRANSPORT"), Triple("Temple entry", 1000.0, "ACTIVITIES"), Triple("Matcha & sweets", 2400.0, "FOOD"))
+            .forEachIndexed { i, (t, jpy, c) ->
+                repo.saveExpense(com.wanderlust.app.data.Expense(tripId = kyoto, title = t, amount = jpy, currency = "JPY", amountHome = jpy * 0.56,
+                    homeCurrency = "INR", category = c, date = start.plusDays((i % 2).toLong())))
+            }
         repo.saveChecklist(ChecklistItem(tripId = kyoto, name = "JR Pass voucher", isChecked = true))
 
         val past = LocalDate.now().minusDays(120)
@@ -129,6 +136,15 @@ class ScreenshotTest {
         settle()
         compose.onRoot().captureRoboImage("build/screenshots/06_trip_map.png")
     }
+
+    @Test fun tripExpenses() {
+        render("07_tmp") { TripDetailScreen(rememberNavController(), kyoto) }
+        compose.onAllNodesWithText("Expenses")[0].performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.OnClick)
+        settle()
+        compose.onRoot().captureRoboImage("build/screenshots/07_trip_expenses.png")
+    }
+
+    @Test fun settings() = render("08_settings") { com.wanderlust.app.ui.settings.SettingsScreen(rememberNavController()) }
 
     @Test fun visualItinerary() = render("04_visual_itinerary") {
         val nav = rememberNavController()

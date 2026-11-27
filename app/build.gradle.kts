@@ -8,6 +8,10 @@ plugins {
 }
 
 android {
+    sourceSets {
+        // lets MigrationTest read the exported Room schemas
+        getByName("debug").assets.srcDir("$projectDir/schemas")
+    }
     namespace = "com.wanderlust.app"
     compileSdk = 36
 
@@ -127,7 +131,14 @@ dependencies {
     testImplementation("io.github.takahirom.roborazzi:roborazzi-compose:1.50.0")
     testImplementation("androidx.compose.ui:ui-test-junit4")
     testImplementation("androidx.test:core:1.7.0")
+    testImplementation("androidx.room:room-testing:2.8.3")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
+
+    implementation("androidx.work:work-runtime-ktx:2.11.1")          // scheduled backups
+    implementation("androidx.glance:glance-appwidget:1.1.1")         // countdown widget
+    implementation("androidx.glance:glance-material3:1.1.1")
+    implementation("androidx.biometric:biometric:1.1.0")            // app lock
+    implementation("androidx.fragment:fragment-ktx:1.8.9")
 
     // Google Play In-App Updates (used when the app was installed from Play)
     implementation("com.google.android.play:app-update-ktx:2.1.0")

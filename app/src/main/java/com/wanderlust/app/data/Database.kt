@@ -1,6 +1,7 @@
 package com.wanderlust.app.data
 
 import android.content.Context
+import androidx.room.AutoMigration
 import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Delete
@@ -105,19 +106,42 @@ interface TravelDao {
     fun recentMemories(limit: Int): Flow<List<Memory>>
     @Insert suspend fun insertMemory(m: Memory): Long
     @Delete suspend fun deleteMemory(m: Memory)
+
+    // Expenses (v2)
+    @Query("SELECT * FROM expenses WHERE tripId = :tripId ORDER BY date DESC, createdAt DESC")
+    fun expenses(tripId: Long): Flow<List<Expense>>
+    @Query("SELECT * FROM expenses WHERE id = :id") suspend fun expense(id: Long): Expense?
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun upsertExpense(e: Expense): Long
+    @Delete suspend fun deleteExpense(e: Expense)
+
+    // Assistant chat (v2)
+    @Query("SELECT * FROM chat_messages ORDER BY createdAt, id") suspend fun chatMessages(): List<ChatMessageEntity>
+    @Insert suspend fun insertChat(m: ChatMessageEntity): Long
+    @Query("DELETE FROM chat_messages") suspend fun clearChat()
+
+    // Lists for backups / reminders / widgets
+    @Query("SELECT * FROM transports") suspend fun transportsOnce(): List<Transport>
+    @Query("SELECT * FROM lodgings") suspend fun lodgingsOnce(): List<Lodging>
 }
 
 @Database(
     entities = [Trip::class, Transport::class, Lodging::class, Place::class, ItineraryItem::class,
-        ChecklistItem::class, JournalEntry::class, Attachment::class, Memory::class],
-    version = 1,
-    exportSchema = false,
+        ChecklistItem::class, JournalEntry::class, Attachment::class, Memory::class, Expense::class, ChatMessageEntity::class],
+    version = WanderlustDatabase.VERSION,
+    exportSchema = true,
+    // Every schema change must add an entry here (or a manual Migration) — never destructive migrations,
+    // so updates keep users' data. Schemas live in app/schemas/ and are checked by MigrationTest.
+    autoMigrations = [
+        AutoMigration(from = 1, to = 2),
+    ],
 )
 @TypeConverters(Converters::class)
 abstract class WanderlustDatabase : RoomDatabase() {
     abstract fun dao(): TravelDao
 
     companion object {
-        fun create(context: Context) = Room.databaseBuilder(context, WanderlustDatabase::class.java, "wanderlust.db").build()
+        const val VERSION = 2
+        const val NAME = "wanderlust.db"
+        fun create(context: Context) = Room.databaseBuilder(context, WanderlustDatabase::class.java, NAME).build()
     }
 }

@@ -84,7 +84,7 @@ fun SettingsScreen(nav: NavHostController) {
             GlassCard(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(14.dp)) {
                     Text("Wanderlust uses Claude by Anthropic for the travel assistant, reading tickets, and writing journal stories. " +
-                        "Bring your own API key — it’s stored only on this device and sent only to api.anthropic.com.",
+                        "Bring your own API key — it’s encrypted on this device and sent only to api.anthropic.com.",
                         fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     TextButton(onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://console.anthropic.com/settings/keys"))) }) {
                         Text("Get an API key")
@@ -104,6 +104,12 @@ fun SettingsScreen(nav: NavHostController) {
                     Text(label)
                 }
             }
+
+            SmallLabel("Preferences")
+            PreferencesCard()
+
+            SmallLabel("Backup & restore")
+            BackupCard()
 
             SmallLabel("App updates")
             com.wanderlust.app.update.UpdateSettingsCard()

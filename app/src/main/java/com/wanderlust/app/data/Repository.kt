@@ -23,8 +23,8 @@ class TravelRepository(private val dao: TravelDao, private val files: FileStore)
             val a = combine(dao.transports(id), dao.lodgings(id), dao.places(id), dao.itinerary(id)) { t, l, p, i ->
                 TripFull(trip, t, l, p, i)
             }
-            val b = combine(dao.checklist(id), dao.journal(id), dao.attachments(id), dao.memories(id)) { c, j, at, m ->
-                arrayOf(c, j, at, m)
+            val b = combine(dao.checklist(id), dao.journal(id), dao.attachments(id), dao.memories(id), dao.expenses(id)) { c, j, at, m, ex ->
+                arrayOf(c, j, at, m, ex)
             }
             combine(a, b) { full, rest ->
                 @Suppress("UNCHECKED_CAST")
@@ -33,6 +33,7 @@ class TravelRepository(private val dao: TravelDao, private val files: FileStore)
                     journal = rest[1] as List<JournalEntry>,
                     attachments = rest[2] as List<Attachment>,
                     memories = rest[3] as List<Memory>,
+                    expenses = rest[4] as List<Expense>,
                 )
             }
         }
@@ -106,6 +107,22 @@ class TravelRepository(private val dao: TravelDao, private val files: FileStore)
         File(m.filePath).delete()
         dao.deleteMemory(m)
     }
+
+    // ---- Expenses
+    suspend fun expense(id: Long) = dao.expense(id)
+    suspend fun saveExpense(e: Expense) = dao.upsertExpense(e)
+    suspend fun deleteExpense(e: Expense) {
+        e.receiptPath?.let { File(it).delete() }
+        dao.deleteExpense(e)
+    }
+
+    // ---- Chat history
+    suspend fun chatMessages() = dao.chatMessages()
+    suspend fun addChat(m: ChatMessageEntity) = dao.insertChat(m)
+    suspend fun clearChat() = dao.clearChat()
+
+    suspend fun transportsOnce() = dao.transportsOnce()
+    suspend fun lodgingsOnce() = dao.lodgingsOnce()
 
     /** Seeds a starter packing list, like AdventureLog's checklists. */
     suspend fun seedPackingList(tripId: Long) {

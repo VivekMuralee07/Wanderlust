@@ -32,7 +32,14 @@ The data model and feature set follow the open-source [AdventureLog](https://git
 | **Checklists** | A packing list is created automatically for each new trip. You can add more lists (To-do…) and track progress. |
 | **Travel journal** (AdventureLog *Notes*) | Daily entries with mood, text and a photo. |
 | **Journal summary** | Works offline: headline, stats, mood timeline, snapshots, highlights, category breakdown and "words of the trip". **AI story**: Claude turns your entries into a short written recap with highlights and day by day. |
-| **AI travel agent** | A chat that can see your trips and can **act on them**. It can add itinerary items, checklist items and places, and it uses **web search** for visas, opening hours, weather and events. |
+| **AI travel agent** | A chat that **streams answers as they are written**, keeps your conversation between sessions, sees your trips and can **act on them**. It can add itinerary items, checklist items and places, and it uses **web search** for visas, opening hours, weather and events. |
+| **Backup & restore** | *Settings → Backup & restore* exports everything into one `.zip`: trips, bookings, tickets, journals, expenses and photos (never the API key). Save it to Google Drive or anywhere you like, and restore it on the same phone or a new one (file paths are remapped). Optional **automatic daily or weekly backup** to a file you pick. Android's Google backup also covers the database and tickets. |
+| **Reminders** | Notifications 7, 3 and 1 days before a trip; **flight check-in 24 h** and **leave for the airport 3 h** before departure; train/bus 1 h before; hotel check-in and check-out days. Rescheduled automatically when trips change and after a reboot. Tapping one opens the trip. |
+| **Countdown widget** | Home-screen widget with days to your next trip, or "Day X of Y" while you travel. |
+| **Expenses** | Per-trip expense tracker in any currency, converted to your home currency (rates from open.er-api.com, cached for offline use). Budget bar, per-day average, breakdown by category. **Scan a receipt** and AI fills in merchant, total, currency, date and category. |
+| **Weather** | Open-Meteo forecast for trip days within the next 16 days, and "typical" weather (same dates last year) for later trips. Shown on the overview, the itinerary tab and the visual itinerary. |
+| **Add to calendar** | Writes the trip, flights, hotel stays, timed activities and place visits into a calendar on your phone (for example Google Calendar). Running it again replaces the earlier events, and you can remove them. You can also share a standard `.ics` file. |
+| **App lock** | Optional fingerprint, face or screen-PIN lock, re-locking after a minute in the background. The Anthropic API key is encrypted with an Android Keystore key. |
 | **In-app updates** | Settings → *App updates* (plus a banner on Home). Sideloaded installs check this repo's latest **GitHub Release**, download the APK, verify it is the same app, signed with the same key and newer, then open Android's installer. Installs from Google Play use **Google Play In-App Updates**. Automatic check at most every 12 h (can be turned off). |
 | **Memories / Google Photos** | Add photos with the Android photo picker. On devices where Google Photos is the cloud media app, your Google Photos library shows up in the picker. You can also **share photos from Google Photos straight into a trip** with Share → Wanderlust. |
 
@@ -109,6 +116,12 @@ app/src/main/java/com/wanderlust/app/
 ├── data/        Room entities + DAO, repository, file store (attachments/photos), settings, Nominatim geocoder
 ├── domain/      ItineraryBuilder (day-by-day timeline), countdowns, JournalSummarizer
 ├── ai/          ClaudeService (chat agent, ticket extraction, journal story), AgentTools
+├── backup/      BackupManager (zip export/restore, scheduled backups)
+├── expenses/    expense tracker, exchange rates
+├── reminders/   notification scheduling
+├── widget/      countdown home-screen widget (Glance)
+├── weather/     Open-Meteo forecasts
+├── calendar/    calendar provider + .ics export
 ├── update/      AppUpdater (GitHub Releases / Google Play in-app updates) + update UI
 └── ui/
     ├── home/        animated landing page
@@ -122,6 +135,10 @@ app/src/main/java/com/wanderlust/app/
     └── settings/
 ```
 
-Libraries: Jetpack Compose (Material 3), Navigation Compose, Room, Coil 3, osmdroid, Anthropic Java SDK, Google Play In-App Updates.
+Libraries: Jetpack Compose (Material 3), Navigation Compose, Room, WorkManager, Glance, AndroidX Biometric, Coil 3, osmdroid, Anthropic Java SDK, Google Play In-App Updates.
+
+Database changes go through Room migrations (`autoMigrations` in `Database.kt`, schemas in `app/schemas/`), and `MigrationTest` upgrades a real v1 database. Never use destructive migrations: updates must keep users' data.
+
+Weather by [Open-Meteo](https://open-meteo.com) · Exchange rates by [ExchangeRate-API](https://www.exchangerate-api.com)
 
 Maps © OpenStreetMap contributors.
