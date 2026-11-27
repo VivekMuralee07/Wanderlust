@@ -4,5 +4,4 @@
     <include domain="database" path="." />
     <include domain="file" path="attachments/" />
     <include domain="sharedpref" path="wanderlust_backup.xml" />
-    <exclude domain="sharedpref" path="wanderlust_settings.xml" />
 </full-backup-content>
