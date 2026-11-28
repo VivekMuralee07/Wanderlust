@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
@@ -168,15 +169,15 @@ fun TripDetailScreen(nav: NavHostController, tripId: Long) {
                 Spacer(Modifier.height(12.dp))
             }
             when (tab) {
-                TripTab.OVERVIEW -> overview(f, nav, weather, onExport = {
+                TripTab.OVERVIEW -> overview(f, nav, weather.days, onExport = {
                     scope.launch {
-                        runCatching { ItineraryPdf.export(context, f) }
+                        runCatching { ItineraryPdf.export(context, f, weather) }
                             .onSuccess { file -> app.files.share(context, file, "application/pdf", "${f.trip.name} itinerary") }
                             .onFailure { Toast.makeText(context, "Export failed: ${it.message}", Toast.LENGTH_LONG).show() }
                     }
                 }, onArchive = { app.appScope.launch { app.repo.saveTrip(f.trip.copy(isArchived = !f.trip.isArchived)) } })
                 TripTab.BOOKINGS -> bookings(f, nav)
-                TripTab.PLAN -> plan(f, nav, weather)
+                TripTab.PLAN -> plan(f, nav, weather.days)
                 TripTab.PLACES -> places(f, nav, onToggle = { pl -> app.appScope.launch { app.repo.savePlace(pl.copy(visited = !pl.visited)) } })
                 TripTab.CHECKLIST -> item { Checklist(f) }
                 TripTab.EXPENSES -> item { com.wanderlust.app.expenses.ExpensesTab(f, nav) }
@@ -328,7 +329,8 @@ private fun LazyListScope.plan(f: TripFull, nav: NavHostController, weather: Map
                     Text(if (d.index >= 1) "Day ${d.index}" else "Travel day", fontFamily = Display, fontWeight = FontWeight.Bold, fontSize = 20.sp, color = MaterialTheme.colorScheme.secondary)
                     Spacer(Modifier.width(10.dp))
                     Text(d.date.format(dayFmt), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(weather[d.date]?.let { "   ${it.emoji} ${it.temps()}" } ?: "", fontSize = 13.sp, modifier = Modifier.weight(1f))
+                    Text(weather[d.date]?.let { "   ${it.emoji} ${it.temps()}" + (it.place.takeIf { p -> p.isNotBlank() }?.let { p -> " · $p" } ?: "") } ?: "",
+                        fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                     TextButton(onClick = { nav.navigate(Routes.activity(f.trip.id, 0, d.date.toString())) }) { Text("+ Add") }
                 }
                 if (d.events.isEmpty()) Text("Free day — add an activity or ask the AI for ideas", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -517,13 +519,15 @@ private fun WeatherStrip(weather: Map<java.time.LocalDate, com.wanderlust.app.we
     val days = weather.values.sortedBy { it.date }
     val typical = days.all { it.typical }
     Column(Modifier.padding(bottom = 14.dp)) {
-        SmallLabel(if (typical) "Typical weather for your dates (last year)" else "Weather forecast", Modifier.padding(start = 20.dp, bottom = 6.dp))
+        SmallLabel(if (typical) "Typical weather where you’ll be (last year)" else "Weather where you’ll be", Modifier.padding(start = 20.dp, bottom = 6.dp))
         androidx.compose.foundation.lazy.LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             items(days.size) { i ->
                 val w = days[i]
                 GlassCard(corner = 18.dp) {
                     Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(w.date.format(java.time.format.DateTimeFormatter.ofPattern("EEE d")), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        if (w.place.isNotBlank()) Text(w.place, fontSize = 10.sp, color = MaterialTheme.colorScheme.secondary, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.widthIn(max = 84.dp))
                         Text(w.emoji, fontSize = 26.sp)
                         Text(w.temps(), fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
                         w.rainChance?.takeIf { it >= 30 }?.let { Text("💧$it%", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }

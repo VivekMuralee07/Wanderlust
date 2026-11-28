@@ -30,7 +30,7 @@ object ItineraryPdf {
     private const val H = 842
     private const val M = 40f
 
-    suspend fun export(context: Context, full: TripFull): File = withContext(Dispatchers.IO) {
+    suspend fun export(context: Context, full: TripFull, weather: com.wanderlust.app.weather.TripWeather = com.wanderlust.app.weather.TripWeather()): File = withContext(Dispatchers.IO) {
         val pal = palette(full.trip.themeIndex)
         val c1 = pal.colors.first().toArgb(); val c2 = pal.colors.last().toArgb(); val accent = pal.accent.toArgb()
         val ink = 0xFF1B1F3B.toInt(); val gray = 0xFF6B7194.toInt(); val light = 0xFFE8EAF6.toInt()
@@ -113,7 +113,10 @@ object ItineraryPdf {
         newPage(true)
         val it = ItineraryBuilder.build(full)
         it.days.forEach { d ->
-            dayHeader(if (d.index >= 1) "DAY ${d.index}" else "TRAVEL", d.date.format(longDayFmt), d.sleepingAt?.let { "Staying at $it" })
+            val w = weather.days[d.date]
+            dayHeader(if (d.index >= 1) "DAY ${d.index}" else "TRAVEL", d.date.format(longDayFmt),
+                listOfNotNull(w?.let { "${it.emoji} ${it.label} ${it.temps()}" + (it.place.takeIf { p -> p.isNotBlank() }?.let { p -> " in $p" } ?: "") + if (it.typical) " (typical)" else "" },
+                    d.sleepingAt?.let { "Staying at $it" }).joinToString("   ·   ").ifBlank { null })
             if (d.events.isEmpty()) { ensure(20f); canvas.drawText("Free day — wander, rest, explore.", M + 96f, y + 10f, text(10f, gray)); y += 22f }
             d.events.forEachIndexed { i, e -> event(e, i == d.events.lastIndex) }
             y += 12f
