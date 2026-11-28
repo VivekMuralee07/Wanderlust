@@ -156,9 +156,23 @@ class ScreenshotTest {
         assertEquals(175, com.wanderlust.app.data.Countries.shapes(ApplicationProvider.getApplicationContext()).size)
     }
 
-    @Test fun visualItinerary() = render("04_visual_itinerary") {
-        val nav = rememberNavController()
-        NavHost(nav, "it") { composable("it") { VisualItineraryScreen(nav, kyoto) } }
+    @Test fun visualItinerary() {
+        // fake weather so the per-day / per-place weather can be seen without network
+        com.wanderlust.app.weather.Weather.testOverride = { full ->
+            val start = full.trip.startDate!!
+            val days = (-1..6).associate { i ->
+                val d = start.plusDays(i.toLong())
+                d to com.wanderlust.app.weather.DayWeather(d, listOf(1, 1, 2, 61, 0, 3, 80, 1)[i + 1], 13.0 + (i + 1) % 3, 6.0 + (i + 1) % 2, 20,
+                    typical = true, place = if (i < 0) "Tokyo" else "Kyoto")
+            }
+            com.wanderlust.app.weather.TripWeather(days, full.places.associate { p -> p.id to days.getValue(p.visitAt!!.toLocalDate()).copy(code = 0, maxC = 14.0) })
+        }
+        try {
+            render("04_visual_itinerary") {
+                val nav = rememberNavController()
+                NavHost(nav, "it") { composable("it") { VisualItineraryScreen(nav, kyoto) } }
+            }
+        } finally { com.wanderlust.app.weather.Weather.testOverride = null }
     }
 
     @Test fun journalSummary() = render("05_journal_summary") {

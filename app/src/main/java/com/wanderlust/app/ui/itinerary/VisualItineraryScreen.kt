@@ -106,7 +106,7 @@ fun VisualItineraryScreen(nav: NavHostController, tripId: Long) {
                     }, colors = c) { Icon(Icons.Default.Share, "Share as text") }
                     IconButton(onClick = {
                         scope.launch {
-                            runCatching { ItineraryPdf.export(context, f.copy(trip = f.trip.copy(themeIndex = themeIndex))) }
+                            runCatching { ItineraryPdf.export(context, f.copy(trip = f.trip.copy(themeIndex = themeIndex)), weather) }
                                 .onSuccess { app.files.share(context, it, "application/pdf", "${f.trip.name} itinerary") }
                                 .onFailure { Toast.makeText(context, "Export failed: ${it.message}", Toast.LENGTH_LONG).show() }
                         }
@@ -144,7 +144,7 @@ fun VisualItineraryScreen(nav: NavHostController, tripId: Long) {
             if (itinerary.days.isEmpty() && itinerary.unscheduled.isEmpty()) item {
                 EmptyState("🧭", "Your itinerary is empty", "Add trip dates, flights, hotels and places — they’ll appear here on a beautiful timeline.")
             }
-            itemsIndexed(itinerary.days, key = { _, d -> d.date.toString() }) { i, d -> DayBlock(d, p, i, weather[d.date]) }
+            itemsIndexed(itinerary.days, key = { _, d -> d.date.toString() }) { i, d -> DayBlock(d, p, i, weather.days[d.date], weather.places) }
             if (itinerary.unscheduled.isNotEmpty()) item {
                 DayHeader("✦", "Anytime", "Ideas without a date yet", p)
                 itinerary.unscheduled.forEach { EventRow(it, p, isLast = it == itinerary.unscheduled.last()) }
@@ -154,19 +154,19 @@ fun VisualItineraryScreen(nav: NavHostController, tripId: Long) {
 }
 
 @Composable
-private fun DayBlock(d: ItineraryDay, p: TripPalette, index: Int, w: com.wanderlust.app.weather.DayWeather? = null) {
+private fun DayBlock(d: ItineraryDay, p: TripPalette, index: Int, w: com.wanderlust.app.weather.DayWeather? = null, placeWeather: Map<Long, com.wanderlust.app.weather.DayWeather> = emptyMap()) {
     // gentle staggered entrance
     val anim = remember { Animatable(0f) }
     LaunchedEffect(Unit) { anim.animateTo(1f, tween(450, delayMillis = (index * 60).coerceAtMost(400))) }
     Column(Modifier.graphicsLayer { alpha = anim.value; translationY = (1 - anim.value) * 60f }) {
         val sub = listOfNotNull(
-            w?.let { "${it.emoji} ${it.temps()}" + if (it.typical) " typical" else "" },
+            w?.let { "${it.emoji} ${it.place.ifBlank { it.label }} ${it.temps()}" + if (it.typical) " (typical)" else "" },
             d.sleepingAt?.let { "🌙 $it" } ?: if (d.index < 1) "Travel day" else null,
         ).joinToString("  ·  ")
         DayHeader(if (d.index >= 1) "${d.index}" else "✈", d.date.format(longDayFmt), sub, p)
         if (d.events.isEmpty()) {
             EventRow(TimelineEvent(EventKind.ACTIVITY, null, null, "🌿", "Free day", "Wander, rest, get lost on purpose"), p, isLast = true, muted = true)
-        } else d.events.forEachIndexed { i, e -> EventRow(e, p, isLast = i == d.events.lastIndex) }
+        } else d.events.forEachIndexed { i, e -> EventRow(e, p, isLast = i == d.events.lastIndex, weather = if (e.kind == EventKind.PLACE) placeWeather[e.refId] else null) }
         Spacer(Modifier.height(18.dp))
     }
 }
@@ -189,7 +189,7 @@ private fun DayHeader(number: String, title: String, subtitle: String, p: TripPa
 }
 
 @Composable
-private fun EventRow(e: TimelineEvent, p: TripPalette, isLast: Boolean, muted: Boolean = false) {
+private fun EventRow(e: TimelineEvent, p: TripPalette, isLast: Boolean, muted: Boolean = false, weather: com.wanderlust.app.weather.DayWeather? = null) {
     Row(Modifier.padding(start = 20.dp, end = 20.dp).height(IntrinsicSize.Min)) {
         // time column
         Column(Modifier.width(56.dp).padding(top = 14.dp), horizontalAlignment = Alignment.End) {
@@ -224,6 +224,12 @@ private fun EventRow(e: TimelineEvent, p: TripPalette, isLast: Boolean, muted: B
                     if (e.subtitle.isNotBlank()) Text(e.subtitle, fontSize = 12.sp, color = Color.White.copy(alpha = 0.75f), maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
                 if (e.optional) Text("optional", fontSize = 10.sp, color = Color.White.copy(alpha = 0.7f))
+                weather?.let { w ->
+                    Column(horizontalAlignment = Alignment.End, modifier = Modifier.padding(start = 6.dp)) {
+                        Text(w.emoji, fontSize = 18.sp)
+                        Text(w.temps(), fontSize = 11.sp, color = Color.White.copy(alpha = 0.85f))
+                    }
+                }
             }
             if (e.detail.isNotBlank()) Text(e.detail, fontSize = 12.sp, color = Color.White.copy(alpha = 0.65f), modifier = Modifier.padding(top = 6.dp), maxLines = 3, overflow = TextOverflow.Ellipsis)
         }
